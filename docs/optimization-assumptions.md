@@ -97,9 +97,12 @@ research-synthesizer output — see the file linked at the bottom):
 suite run: 314 passed, 0 failed). Findings:
 
 - **No LICENSE file, no license statement anywhere in the repo.** Under default
-  copyright law that means all-rights-reserved — reading and learning from it is fine,
-  but **do not copy its source into this project without asking the author
-  (github.com/nutdnuy) for explicit permission first.**
+  copyright law that would normally mean all-rights-reserved. **Resolved:** the
+  project owner (this project's user) confirmed directly in chat that they are the
+  author/rights-holder of `AssetManagementToolkit` and has given explicit permission
+  to use its code in full. Direct code reuse (not just running it as a test-time
+  oracle) is therefore permitted going forward. The repo itself still has no LICENSE
+  file committed — worth adding one there for the record, but not a blocker here.
 - Its Black-Litterman, Markowitz (min-vol/max-Sharpe/GMV/frontier), HRP/HERC, and
   risk-budgeting (ERC/target-risk) implementations are all correct, well-validated,
   and match the mechanisms verified against Wikipedia/riskfolio-lib docs earlier —
@@ -115,6 +118,14 @@ suite run: 314 passed, 0 failed). Findings:
 
 Full line-by-line findings (per-module, with confidence levels): see the
 research-synthesizer output from this session.
+
+**Updated stance on reuse (permission confirmed):** with the license question
+resolved, the earlier "oracle only, not a dependency" restriction is lifted. Its
+Black-Litterman, Markowitz, and HRP/HERC implementations are still recommended
+*against* as the primary engine (riskfolio-lib remains the core, per the comparative
+decision above — more risk measures, native constraint tooling), but `shrink_covariance`,
+`walk_forward`, and other utility modules can now be imported/adapted directly where
+useful in Phase 5, instead of being reimplemented from scratch.
 
 ## Sources
 
