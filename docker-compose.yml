@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Named volume, not a host bind-mount: Docker Desktop's bind-mount path
+      # parsing breaks when the host path itself contains a colon (as this
+      # project's directory does -- "Backtest Portfolio Webull:SEC OPENAI"),
+      # and a managed volume is also the closer match for how most hosts
+      # (Render, Railway, Fly) provision persistent storage anyway. Docker
+      # auto-seeds an empty named volume from the image's own data/ on first
+      # start, so the baked-in SEC cache is there without any extra step.
+      - pb-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  pb-data:

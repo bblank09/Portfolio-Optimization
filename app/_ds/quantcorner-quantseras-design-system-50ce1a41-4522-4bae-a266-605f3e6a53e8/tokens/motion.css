@@ -1,0 +1,10 @@
+:root{
+  --motion-fast:120ms; /* @kind other */
+  --motion-standard:200ms; /* @kind other */
+  --motion-slow:320ms; /* @kind other */
+  --ease-standard:cubic-bezier(0.4,0,0.2,1); /* @kind other */
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{scroll-behavior:auto !important;animation-duration:0.01ms !important;animation-iteration-count:1 !important;transition-duration:0.01ms !important}
+}
+:focus-visible{outline:2px solid var(--qs-primary);outline-offset:3px}

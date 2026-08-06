@@ -1,0 +1,32 @@
+.DS_Store
+logo_credit*/
+logo_web.png
+.env
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.superpowers/
+__pycache__/
+*.pyc
+
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+frontend/test-results/
+frontend/playwright-report/
+frontend/playwright/.cache/
+
+data/runs/
+data/sec/raw/
+
+sec_open_data_portfolio_backtester.egg-info/
+
+Clean portfolio backtesting workspace/
+Clean portfolio backtesting workspace.zip
+
+app/uploads/
+app/.thumbnail
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/

@@ -1,0 +1,20 @@
+{
+  "message": "success",
+  "page_size": 5,
+  "next_cursor": "",
+  "items": [
+    {
+      "proj_id": "M0004_2559",
+      "unique_id": "C0000033452",
+      "fund_class_name": "main",
+      "nav_date": "2023-07-13",
+      "net_asset": 248999361.26,
+      "last_val": 15.0833,
+      "sell_price": 15.3097,
+      "buy_price": 15.0833,
+      "sell_swap_price": 15.0833,
+      "buy_swap_price": 15.3097,
+      "last_upd_date": null
+    }
+  ]
+}

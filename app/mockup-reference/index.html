@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portfolio Backtester Mockup</title>
+  <link rel="stylesheet" href="./mockup.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <div class="brand">Portfolio Backtester</div>
+        <span class="sample-badge">Mockup uses seeded sample data</span>
+      </div>
+      <div class="top-actions">
+        <button class="btn text" id="loadExample">Load example</button>
+        <button class="btn text" id="importCsv">Import CSV</button>
+        <button class="btn primary" id="runBtn">Run backtest</button>
+        <button class="btn" id="viewReportBtn" disabled>View report</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <section class="section">
+          <div class="section-head">
+            <div class="section-title">Objective preset</div>
+            <span class="pill">Auto-fill, editable</span>
+          </div>
+          <div id="objectives" class="objective-grid"></div>
+          <div class="objective-note">
+            <strong id="objectiveTitle"></strong>
+            <p id="objectiveDescription" class="hint"></p>
+            <div>
+              <span class="pill" id="requiredPill"></span>
+              <span class="pill" id="optionalPill"></span>
+            </div>
+            <p class="hint" style="margin-bottom:0">Always shown after every run: Benchmark Risk, Drawdown Stress, Diversification Check, CQF Report.</p>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div class="section-title">Portfolio <span class="pill" id="weightStatus">Total 100%</span></div>
+          </div>
+          <div id="assets"></div>
+          <div class="bar" id="allocationBar"></div>
+          <button class="btn" id="addAsset">Add asset</button>
+          <button class="btn text" id="normalizeBtn">Normalize to 100%</button>
+          <div id="errors" class="errors"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div class="section-title">Required inputs</div>
+            <span class="pill" id="requiredContext"></span>
+          </div>
+          <div class="field-grid">
+            <div><label>Start date</label><input id="startDate" type="date"></div>
+            <div><label>End date</label><input id="endDate" type="date"></div>
+            <div><label>Initial capital (USD)</label><input id="initialCapital" type="number" min="0"></div>
+            <div><label>Benchmark ticker</label><input id="benchmark"></div>
+            <div id="cashflowAmountWrap"><label id="cashflowAmountLabel">Cashflow amount (USD)</label><input id="cashflowAmount" type="number" min="0"></div>
+            <div id="rebalanceRequiredWrap"><label>Rebalance mode</label><select id="rebalanceModeMain"></select></div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div class="section-title">Optional inputs</div>
+            <span class="pill">Editable</span>
+          </div>
+          <div class="field-grid">
+            <div><label>Cashflow enabled</label><select id="cashflowEnabled"><option value="true">Yes</option><option value="false">No</option></select></div>
+            <div><label>Cashflow type</label><select id="cashflowType"></select></div>
+            <div><label>Cashflow frequency</label><select id="cashflowFrequency"></select></div>
+            <div><label>Cashflow timing</label><select id="cashflowTiming"></select></div>
+            <div><label>Rebalancing</label><select id="rebalanceMode"></select></div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div class="section-title">Advanced assumptions</div>
+            <button class="btn text" id="toggleAdvanced">Show</button>
+          </div>
+          <div id="advanced" class="advanced">
+            <div><label>Risk-free rate (% / yr)</label><input id="riskFreeRate" type="number" step="0.1"></div>
+            <div><label>Annual drag / expense (%)</label><input id="annualDrag" type="number" step="0.01"></div>
+            <div><label>Transaction cost (bps)</label><input id="transactionCost" type="number" step="1"></div>
+            <div><label>Slippage (bps)</label><input id="slippageBps" type="number" step="1"></div>
+            <div><label>Use adjusted close</label><select id="useAdjClose"><option value="true">Yes</option><option value="false">No</option></select></div>
+            <div><label>Reinvest dividends</label><select id="reinvestDividends"><option value="true">Yes</option><option value="false">No</option></select></div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">Review and run</div>
+          <p id="assumptionSummary" class="hint"></p>
+          <div class="notice">This is a usable mockup. It runs a deterministic sample backtest from your inputs, not live market prices.</div>
+        </section>
+      </aside>
+
+      <main class="main">
+        <nav class="tabs" id="tabs"></nav>
+        <div id="content" class="empty">Choose an objective, confirm inputs, then run a backtest.</div>
+      </main>
+    </div>
+  </div>
+
+  <aside id="formulaDrawer" class="formula-drawer hidden"></aside>
+
+  <script src="./mockup.js"></script>
+</body>
+</html>

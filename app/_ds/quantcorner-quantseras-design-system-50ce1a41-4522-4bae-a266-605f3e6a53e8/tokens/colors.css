@@ -1,0 +1,90 @@
+/* QuantCorner / QuantSeras — Material Design 2 exact baseline. Dark is primary; light is supporting. */
+:root,[data-theme="dark"]{
+  color-scheme:dark;
+  --qs-background:#121212;
+  --qs-surface-0:#121212;
+  --qs-surface-1:#1e1e1e;
+  --qs-surface-2:#232323;
+  --qs-surface-3:#252525;
+  --qs-surface-4:#272727;
+  --qs-surface-6:#2c2c2c;
+  --qs-surface-8:#2d2d2d;
+  --qs-surface-12:#323232;
+  --qs-surface-16:#353535;
+  --qs-surface-24:#383838;
+  --qs-primary:#bb86fc;
+  --qs-primary-variant:#3700b3;
+  --qs-secondary:#03dac6;
+  --qs-error:#cf6679;
+  --qs-on-primary:#000000;
+  --qs-on-secondary:#000000;
+  --qs-on-error:#000000;
+  --qs-text-high:rgb(255 255 255 / 87%);
+  --qs-text-medium:rgb(255 255 255 / 60%);
+  --qs-text-disabled:rgb(255 255 255 / 38%);
+  --qs-border:rgb(255 255 255 / 12%);
+  --qs-border-strong:rgb(255 255 255 / 24%);
+  /* semantic status (paired with icon/label — never color alone) */
+  --qs-success:#4cd9a8;
+  --qs-warning:#f2c94c;
+  --qs-info:#64b5f6;
+  /* semantic aliases used by components */
+  --surface-canvas:var(--qs-background);
+  --surface-card:var(--qs-surface-2);
+  --surface-card-hover:var(--qs-surface-4);
+  --surface-inset:var(--qs-surface-1);
+  --surface-overlay:var(--qs-surface-8);
+  --text-body:var(--qs-text-high);
+  --text-muted:var(--qs-text-medium);
+  --text-disabled:var(--qs-text-disabled);
+  --link:var(--qs-secondary);
+  --link-hover:#4de8d4;
+  --focus-ring:0 0 0 3px color-mix(in srgb, var(--qs-primary) 45%, transparent);
+}
+[data-theme="light"]{
+  color-scheme:light;
+  --qs-background:#ffffff;
+  --qs-surface-0:#ffffff;
+  --qs-surface-1:#ffffff;
+  --qs-surface-2:#ffffff;
+  --qs-surface-3:#ffffff;
+  --qs-surface-4:#ffffff;
+  --qs-surface-6:#ffffff;
+  --qs-surface-8:#ffffff;
+  --qs-surface-12:#ffffff;
+  --qs-surface-16:#ffffff;
+  --qs-surface-24:#ffffff;
+  --qs-primary:#6200ee;
+  --qs-primary-variant:#3700b3;
+  --qs-secondary:#03dac6;
+  --qs-error:#b00020;
+  --qs-on-primary:#ffffff;
+  --qs-on-secondary:#000000;
+  --qs-on-error:#ffffff;
+  --qs-text-high:rgb(0 0 0 / 87%);
+  --qs-text-medium:rgb(0 0 0 / 60%);
+  --qs-text-disabled:rgb(0 0 0 / 38%);
+  --qs-border:rgb(0 0 0 / 12%);
+  --qs-border-strong:rgb(0 0 0 / 24%);
+  --qs-success:#1b8a5a;
+  --qs-warning:#8a6d00;
+  --qs-info:#0d5aa7;
+  --surface-canvas:var(--qs-background);
+  --surface-card:#ffffff;
+  --surface-card-hover:#f7f7f8;
+  --surface-inset:#f4f4f5;
+  --surface-overlay:#ffffff;
+  --text-body:var(--qs-text-high);
+  --text-muted:var(--qs-text-medium);
+  --text-disabled:var(--qs-text-disabled);
+  --link:var(--qs-primary);
+  --link-hover:#4b00b8;
+  --focus-ring:0 0 0 3px color-mix(in srgb, var(--qs-primary) 35%, transparent);
+  /* light theme expresses elevation with shadow, not tonal surfaces */
+  --qs-shadow-1:0 1px 2px rgb(0 0 0 / 8%), 0 1px 1px rgb(0 0 0 / 6%);
+  --qs-shadow-2:0 2px 6px rgb(0 0 0 / 10%), 0 1px 2px rgb(0 0 0 / 6%);
+  --qs-shadow-4:0 6px 16px rgb(0 0 0 / 12%), 0 2px 4px rgb(0 0 0 / 6%);
+  --qs-shadow-8:0 12px 28px rgb(0 0 0 / 14%), 0 4px 8px rgb(0 0 0 / 8%);
+}
+a{color:var(--link)}
+a:hover{color:var(--link-hover)}

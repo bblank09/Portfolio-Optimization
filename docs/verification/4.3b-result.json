@@ -1,0 +1,226 @@
+{
+  "data_source": "sec_open_data",
+  "summary": {
+    "ending_value": 101297.06041577339,
+    "irr": -0.18273215529341716,
+    "twrr": -0.06496365390860259,
+    "twrr_cagr": -0.18250429730918372,
+    "volatility": 0.08668305983195985,
+    "sharpe": -2.3361461593735853,
+    "sortino": -2.2090618091074488,
+    "calmar": -6.7286845141310145,
+    "var_95": 0.04318329869625501,
+    "var_99": 0.04589330939210722,
+    "max_drawdown": -0.027123325060924408,
+    "benchmark_excess_return": -0.00990445668076545,
+    "cashflow_count": 4,
+    "rebalance_count": 4,
+    "total_contributed": 108000.0,
+    "total_withdrawn": 0.0,
+    "total_costs": 0.7053307147697524
+  },
+  "equity_curve": [
+    {
+      "date": "2023-01-31",
+      "value": 100000.0
+    },
+    {
+      "date": "2023-02-28",
+      "value": 99601.26103993648
+    },
+    {
+      "date": "2023-03-31",
+      "value": 102841.05084995212
+    },
+    {
+      "date": "2023-04-30",
+      "value": 100051.65959814182
+    },
+    {
+      "date": "2023-05-31",
+      "value": 101297.06041577339
+    }
+  ],
+  "benchmark_curve": [
+    {
+      "date": "2023-01-31",
+      "value": 100000.0
+    },
+    {
+      "date": "2023-02-28",
+      "value": 97612.76349985562
+    },
+    {
+      "date": "2023-03-31",
+      "value": 98857.0603522957
+    },
+    {
+      "date": "2023-04-30",
+      "value": 94194.05140051978
+    },
+    {
+      "date": "2023-05-31",
+      "value": 94494.08027721629
+    }
+  ],
+  "drawdown_curve": [
+    {
+      "date": "2023-01-31",
+      "value": 0.0
+    },
+    {
+      "date": "2023-02-28",
+      "value": -0.003987389600635161
+    },
+    {
+      "date": "2023-03-31",
+      "value": 0.0
+    },
+    {
+      "date": "2023-04-30",
+      "value": -0.027123325060924408
+    },
+    {
+      "date": "2023-05-31",
+      "value": -0.015013366952380314
+    }
+  ],
+  "monthly_returns": {
+    "title": "Monthly Returns",
+    "rows": [
+      {
+        "date": "2023-02-28",
+        "return": -0.02398738960063518
+      },
+      {
+        "date": "2023-03-31",
+        "return": 0.012447531256843503
+      },
+      {
+        "date": "2023-04-30",
+        "return": -0.04657081206607028
+      },
+      {
+        "date": "2023-05-31",
+        "return": -0.007542095607402044
+      }
+    ]
+  },
+  "annual_returns": {
+    "title": "Annual Returns",
+    "rows": [
+      {
+        "year": 2023,
+        "return": -0.06496365390860259
+      }
+    ]
+  },
+  "risk_metrics": {
+    "title": "Benchmark Risk",
+    "rows": [
+      {
+        "metric": "beta",
+        "value": 0.9054741555740454
+      },
+      {
+        "metric": "alpha",
+        "value": -0.04291451462357665
+      },
+      {
+        "metric": "tracking_error",
+        "value": 0.01873436504499285
+      },
+      {
+        "metric": "information_ratio",
+        "value": -1.4013999603124738
+      },
+      {
+        "metric": "correlation",
+        "value": 0.9817298588254837
+      }
+    ]
+  },
+  "diversification": {
+    "title": "Diversification Check",
+    "rows": [
+      {
+        "asset_a": "M0155_2547",
+        "asset_b": "M0209_2548",
+        "correlation": 0.8672483709682699
+      }
+    ]
+  },
+  "rolling_correlation": [],
+  "asset_metrics": {
+    "title": "Asset Risk and Allocation",
+    "rows": [
+      {
+        "proj_id": "M0209_2548",
+        "fund": "K-SET50",
+        "target_weight_pct": 60.0,
+        "final_weight_pct": 59.999999999999986,
+        "drift_pct": -1.4210854715202004e-14,
+        "cagr": -0.15624995887865134,
+        "volatility": 0.09398318833014101
+      },
+      {
+        "proj_id": "M0155_2547",
+        "fund": "M-S50",
+        "target_weight_pct": 40.0,
+        "final_weight_pct": 40.0,
+        "drift_pct": 0.0,
+        "cagr": -0.22083613288685477,
+        "volatility": 0.0827725443123817
+      }
+    ]
+  },
+  "cashflows": [
+    {
+      "date": "2023-02-28",
+      "amount": 2000.0
+    },
+    {
+      "date": "2023-03-31",
+      "amount": 2000.0
+    },
+    {
+      "date": "2023-04-30",
+      "amount": 2000.0
+    },
+    {
+      "date": "2023-05-31",
+      "amount": 2000.0
+    }
+  ],
+  "rebalances": [
+    {
+      "date": "2023-02-28",
+      "turnover": 6.924949543099986e-05,
+      "cost": 0.006897337548944052
+    },
+    {
+      "date": "2023-03-31",
+      "turnover": 0.00017407676419542713,
+      "cost": 0.017902240474781138
+    },
+    {
+      "date": "2023-04-30",
+      "turnover": 0.0003692669647933817,
+      "cost": 0.03694578630520482
+    },
+    {
+      "date": "2023-05-31",
+      "turnover": 0.006353405112061397,
+      "cost": 0.6435853504408224
+    }
+  ],
+  "quality_issues": [
+    {
+      "code": "short_history",
+      "message": "Only 5 complete observations are available; expected at least 12.",
+      "severity": "warning"
+    }
+  ],
+  "run_id": "run_20260802_033353_9ce1844c",
+  "created_at": "2026-08-02T03:33:53Z"
+}

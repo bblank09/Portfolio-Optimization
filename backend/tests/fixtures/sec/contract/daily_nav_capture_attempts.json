@@ -1,0 +1,13 @@
+[
+  {
+    "endpoint": "/v2/fund/daily-info/nav",
+    "params": {
+      "proj_id": "M0004_2559",
+      "start_nav_date": "2023-07-13",
+      "end_nav_date": "2023-07-13",
+      "page_size": 5
+    },
+    "status": "success",
+    "record_count": 1
+  }
+]

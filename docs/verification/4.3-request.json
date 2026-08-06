@@ -1,0 +1,40 @@
+{
+  "assets": [
+    {
+      "proj_id": "M0209_2548",
+      "display_name": "K-SET50",
+      "weight": 60.0
+    },
+    {
+      "proj_id": "M0155_2547",
+      "display_name": "M-S50",
+      "weight": 40.0
+    }
+  ],
+  "start_date": "2023-01-31",
+  "end_date": "2023-05-31",
+  "initial_capital": 100000.0,
+  "benchmark_proj_id": "M0209_2548",
+  "risk_free_rate_pct": 2.0,
+  "cashflow": {
+    "enabled": false,
+    "type": "contribution",
+    "amount": 0.0,
+    "frequency": "monthly",
+    "timing": "end"
+  },
+  "rebalancing": {
+    "mode": "none",
+    "threshold_pct": 5.0
+  },
+  "costs": {
+    "transaction_bps": 0.0,
+    "slippage_bps": 0.0,
+    "annual_drag_pct": 0.0
+  },
+  "data": {
+    "source": "sec_open_data",
+    "price_field": "nav_per_unit",
+    "frequency": "monthly"
+  }
+}

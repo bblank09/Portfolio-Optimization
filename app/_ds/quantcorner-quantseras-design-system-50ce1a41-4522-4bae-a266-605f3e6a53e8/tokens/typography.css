@@ -1,0 +1,25 @@
+@import url("https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,400;0,500;0,700;1,400&family=Roboto+Mono:wght@400;500;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap");
+:root{
+  --font-ui:"Roboto","Noto Sans Thai",sans-serif;
+  --font-thai:"Noto Sans Thai","Roboto",sans-serif;
+  --font-data:"Roboto Mono",monospace;
+  /* bounded type scale from the canonical spec */
+  --text-hero:clamp(40px,6vw,64px);
+  --text-hero-lh:1.05;
+  --text-headline:clamp(32px,4vw,48px);
+  --text-headline-lh:1.15;
+  --text-section:28px;
+  --text-section-lh:1.25;
+  --text-title:20px;
+  --text-title-lh:1.35;
+  --text-body-size:17px;
+  --text-body-lh:1.6;
+  --text-label:13px;
+  --text-label-lh:1.45;
+  --weight-regular:400;
+  --weight-medium:500;
+  --weight-semibold:600;
+}
+body{font-family:var(--font-ui)}
+:lang(th){font-family:var(--font-thai)}
+.qs-data,.tabular-nums{font-family:var(--font-data);font-variant-numeric:tabular-nums}

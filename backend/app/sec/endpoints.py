@@ -1,0 +1,6 @@
+FUND_AMCS = "/v2/fund/general-info/amcs"
+FUND_PROFILES = "/v2/fund/general-info/profiles"
+FUND_FACTSHEET_ASSET_ALLOCATION = "/v2/fund/factsheet/asset-allocation"
+FUND_FACTSHEET_TOP5_HOLDINGS = "/v2/fund/factsheet/top5-holdings"
+FUND_DAILY_NAV = "/v2/fund/daily-info/nav"
+FUND_DAILY_DIVIDEND = "/v2/fund/daily-info/dividend-history"

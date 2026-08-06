@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/quantcorner-quantseras-design-system-50ce1a41-4522-4bae-a266-605f3e6a53e8/tokens/colors.css">
+  <link rel="stylesheet" href="_ds/quantcorner-quantseras-design-system-50ce1a41-4522-4bae-a266-605f3e6a53e8/tokens/typography.css">
+  <link rel="stylesheet" href="_ds/quantcorner-quantseras-design-system-50ce1a41-4522-4bae-a266-605f3e6a53e8/tokens/spacing.css">
+  <link rel="stylesheet" href="_ds/quantcorner-quantseras-design-system-50ce1a41-4522-4bae-a266-605f3e6a53e8/tokens/motion.css">
+  <link rel="stylesheet" href="_ds/quantcorner-quantseras-design-system-50ce1a41-4522-4bae-a266-605f3e6a53e8/tokens/base.css">
+  <link rel="stylesheet" href="_ds/quantcorner-quantseras-design-system-50ce1a41-4522-4bae-a266-605f3e6a53e8/styles.css">
+  <script src="_ds/quantcorner-quantseras-design-system-50ce1a41-4522-4bae-a266-605f3e6a53e8/_ds_bundle.js"></script>
+  <style>
+    @keyframes qs-spin{to{transform:rotate(360deg)}}
+    body{margin:0;background:#fff}
+    ::-webkit-scrollbar{width:9px;height:9px}
+    ::-webkit-scrollbar-thumb{background:rgb(0 0 0 / 18%);border-radius:99px}
+    .pbt-acc-body[data-open="false"]{display:none}
+    .pbt-objective-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .pbt-objective-card{all:unset;cursor:pointer;border:1px solid var(--qs-border-strong);border-radius:var(--radius-sm);padding:10px;min-height:76px;box-sizing:border-box;background:#fff}
+    .pbt-objective-card[data-active="true"]{border-color:var(--qs-primary);box-shadow:0 0 0 1px var(--qs-primary);background:color-mix(in srgb, var(--qs-primary) 5%, white)}
+    .pbt-pill{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:99px;border:1px solid var(--qs-border);font-size:11px;color:var(--text-muted);background:#fff}
+  </style>
+</helmet>
+
+<div data-theme="light" style="font-family:var(--font-ui);color:var(--text-body);background:var(--surface-canvas);height:100vh;display:flex;flex-direction:column;overflow:hidden">
+
+  <div style="height:56px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid var(--qs-border);background:#fff">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="font-size:var(--text-title);font-weight:var(--weight-semibold)">Portfolio Backtester</span>
+      <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Status" tone="info" hint-size="auto,26px">Illustrative sample data</x-import>
+    </div>
+    <div style="display:flex;align-items:center;gap:18px">
+      <button onClick="{{ loadExample }}" style="all:unset;cursor:pointer;font-size:13.5px;color:var(--qs-primary)">Load example</button>
+      <button onClick="{{ openImportDialog }}" style="all:unset;cursor:pointer;font-size:13.5px;color:var(--text-muted)">Import CSV</button>
+      <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Button" variant="primary" size="sm" onClick="{{ runBacktest }}" disabled="{{ runDisabled }}" hint-size="auto,36px">{{ runButtonLabel }}</x-import>
+      <button onClick="{{ toggleDrawer }}" title="Assumptions & formulas" style="width:36px;height:36px;border-radius:var(--radius-sm);border:1px solid var(--qs-border-strong);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 4h14M1 8h14M1 12h9"></path></svg>
+      </button>
+    </div>
+  </div>
+  <div style="flex:none;padding:8px 20px;border-bottom:1px solid var(--qs-border);background:var(--surface-inset);display:flex;align-items:center;gap:10px">
+    <div style="flex:1;height:4px;border-radius:99px;background:var(--qs-border-strong);overflow:hidden"><div style="height:100%;border-radius:99px;background:var(--qs-primary);width:{{ setupProgressPct }}%;transition:width .2s ease"></div></div>
+    <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">{{ setupProgressLabel }}</span>
+  </div>
+
+    <div style="flex:1;display:flex;min-height:0">
+
+    <div style="width:380px;flex:none;border-right:1px solid var(--qs-border);overflow-y:auto;padding:20px 20px 40px;display:flex;flex-direction:column;gap:24px">
+
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <span style="font-size:15px;font-weight:var(--weight-semibold)">Objective preset</span>
+          <span class="pbt-pill">Auto-fill, editable</span>
+        </div>
+        <div class="pbt-objective-grid">
+          <sc-for list="{{ objectiveOptions }}" as="obj" hint-placeholder-count="4">
+            <button class="pbt-objective-card" data-active="{{ obj.active }}" onClick="{{ obj.onClick }}">
+              <div style="font-size:13.5px;font-weight:var(--weight-semibold);line-height:1.25;margin-bottom:6px">{{ obj.title }}</div>
+              <div style="font-size:11.5px;color:var(--text-muted);line-height:1.35">{{ obj.subtitle }}</div>
+            </button>
+          </sc-for>
+        </div>
+        <div style="margin-top:12px;padding:12px;border:1px solid var(--qs-border);border-radius:var(--radius-sm);background:var(--surface-inset)">
+          <div style="font-size:13px;font-weight:var(--weight-semibold);margin-bottom:6px">{{ objectiveTitle }}</div>
+          <p style="font-size:12.5px;color:var(--text-muted);line-height:1.5;margin:0 0 8px">{{ objectiveDescription }}</p>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <span class="pbt-pill">Required: {{ requiredInputSummary }}</span>
+            <span class="pbt-pill">Optional: {{ optionalInputSummary }}</span>
+            <span class="pbt-pill">Always: Benchmark · Drawdown · Diversification · Report</span>
+          </div>
+          <sc-if value="{{ presetNotice }}" hint-placeholder-val="{{ false }}">
+            <p style="font-size:12px;color:var(--qs-primary);line-height:1.45;margin:10px 0 0">{{ presetNotice }}</p>
+          </sc-if>
+        </div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <span style="font-size:15px;font-weight:var(--weight-semibold);display:flex;align-items:center;gap:10px"><span style="{{ badge1Style }}">1</span>Portfolio</span>
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Status" tone="{{ weightStatusTone }}" hint-size="auto,24px">{{ weightStatusText }}</x-import>
+        </div>
+        <div style="display:flex;gap:6px;margin:-4px 0 10px"><span class="pbt-pill">Required for every objective</span></div>
+
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <sc-for list="{{ portfolio }}" as="row" hint-placeholder-count="3">
+            <div style="display:flex;gap:8px;align-items:flex-end">
+              <div style="flex:1"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" label="{{ row.tickerLabel }}" value="{{ row.ticker }}" onChange="{{ row.onTicker }}" hint-size="100%,68px"></x-import></div>
+              <div style="width:88px"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="number" label="Weight %" value="{{ row.weight }}" onChange="{{ row.onWeight }}" hint-size="88px,68px"></x-import></div>
+              <button onClick="{{ row.onRemove }}" style="width:40px;height:40px;flex:none;border-radius:var(--radius-sm);border:1px solid var(--qs-border-strong);background:#fff;color:var(--qs-error);cursor:pointer">✕</button>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:8px;height:6px;border-radius:99px;overflow:hidden;background:var(--surface-inset)">
+          <sc-for list="{{ allocSegments }}" as="seg" hint-placeholder-count="3">
+            <div style="{{ seg.style }}"></div>
+          </sc-for>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:12px">
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Button" variant="outlined" size="sm" onClick="{{ addAsset }}" hint-size="auto,36px">+ Add asset</x-import>
+          <sc-if value="{{ showNormalize }}"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Button" variant="text" size="sm" onClick="{{ normalizeWeights }}" hint-size="auto,36px">Normalize to 100%</x-import></sc-if>
+        </div>
+
+        <sc-for list="{{ validationErrors }}" as="err" hint-placeholder-count="0">
+          <div style="margin-top:8px"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Status" tone="error" hint-size="auto,24px">{{ err }}</x-import></div>
+        </sc-for>
+      </div>
+
+      <div>
+        <button onClick="{{ toggleData }}" style="all:unset;cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;font-size:15px;font-weight:var(--weight-semibold);padding:6px 0">
+          <span style="display:flex;align-items:center;gap:10px"><span style="{{ badge2Style }}">2</span>Data &amp; risk-free rate</span><span>{{ dataChevron }}</span>
+        </button>
+        <div class="pbt-acc-body" data-open="{{ dataOpen }}" style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:13px;color:var(--text-muted)">Data source</span>
+            <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Status" tone="neutral" hint-size="auto,24px">Sample data (seeded)</x-import>
+          </div>
+          <p style="font-size:12.5px;color:var(--text-muted);line-height:1.5;margin:0">Uploaded CSV and live price-vendor sources are not wired in this prototype — every figure below is illustrative, seeded from your inputs so the same run always reproduces.</p>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-top:1px solid var(--qs-border)">
+            <span style="color:var(--text-muted)">Coverage</span><span>{{ coverageText }}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding-bottom:6px;border-bottom:1px solid var(--qs-border)">
+            <span style="color:var(--text-muted)">Frequency</span><span>Monthly</span>
+          </div>
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="number" label="Risk-free rate (% / yr)" value="{{ riskFreeRate }}" onChange="{{ onRiskFreeRate }}" help="Used for Sharpe, Sortino, alpha" hint-size="100%,68px"></x-import>
+        </div>
+      </div>
+
+      <div>
+        <button onClick="{{ toggleSettings }}" style="all:unset;cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;font-size:15px;font-weight:var(--weight-semibold);padding:6px 0">
+          <span style="display:flex;align-items:center;gap:10px"><span style="{{ badge3Style }}">3</span>Backtest settings</span><span>{{ settingsChevron }}</span>
+        </button>
+        <div class="pbt-acc-body" data-open="{{ settingsOpen }}" style="display:flex;flex-direction:column;gap:12px;margin-top:10px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pbt-pill">Required: dates, capital, benchmark</span><span class="pbt-pill">Auto-filled by objective</span></div>
+          <div style="display:flex;gap:10px;min-width:0">
+            <div style="flex:1;min-width:0"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="date" label="Start date" value="{{ startDate }}" onChange="{{ onStartDate }}" hint-size="100%,68px"></x-import></div>
+            <div style="flex:1;min-width:0"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="date" label="End date" value="{{ endDate }}" onChange="{{ onEndDate }}" hint-size="100%,68px"></x-import></div>
+          </div>
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="number" label="Initial capital (USD)" value="{{ initialCapital }}" onChange="{{ onInitialCapital }}" hint-size="100%,68px"></x-import>
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" label="Benchmark ticker" value="{{ benchmark }}" onChange="{{ onBenchmark }}" help="Default SPY" hint-size="100%,68px"></x-import>
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Switch" label="Use max overlapping history" checked="{{ useMaxOverlap }}" onChange="{{ onUseMaxOverlap }}" hint-size="auto,40px"></x-import>
+        </div>
+      </div>
+
+      <div>
+        <button onClick="{{ toggleCashflow }}" style="all:unset;cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;font-size:15px;font-weight:var(--weight-semibold);padding:6px 0">
+          <span style="display:flex;align-items:center;gap:10px"><span style="{{ badge4Style }}">4</span>Cashflow schedule</span><span>{{ cashflowChevron }}</span>
+        </button>
+        <div class="pbt-acc-body" data-open="{{ cashflowOpen }}" style="display:flex;flex-direction:column;gap:12px;margin-top:10px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pbt-pill">{{ cashflowRequirementLabel }}</span><span class="pbt-pill">Editable after preset</span></div>
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Switch" label="Enable cashflows" checked="{{ cfEnabled }}" onChange="{{ onCfEnabled }}" hint-size="auto,40px"></x-import>
+          <sc-if value="{{ cfEnabled }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Select" label="Type" options="{{ cfTypeOptions }}" value="{{ cfType }}" onChange="{{ onCfType }}" hint-size="100%,68px"></x-import>
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="number" label="Amount (USD)" value="{{ cfAmount }}" onChange="{{ onCfAmount }}" hint-size="100%,68px"></x-import>
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Select" label="Frequency" options="{{ cfFreqOptions }}" value="{{ cfFrequency }}" onChange="{{ onCfFrequency }}" hint-size="100%,68px"></x-import>
+              <div style="display:flex;gap:10px;min-width:0">
+                <div style="flex:1;min-width:0"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="date" label="Start" value="{{ cfStart }}" onChange="{{ onCfStart }}" hint-size="100%,68px"></x-import></div>
+                <div style="flex:1;min-width:0"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="date" label="End (optional)" value="{{ cfEnd }}" onChange="{{ onCfEnd }}" hint-size="100%,68px"></x-import></div>
+              </div>
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Select" label="Timing" options="{{ cfTimingOptions }}" value="{{ cfTiming }}" onChange="{{ onCfTiming }}" hint-size="100%,68px"></x-import>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div>
+        <button onClick="{{ toggleRebalance }}" style="all:unset;cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;font-size:15px;font-weight:var(--weight-semibold);padding:6px 0">
+          <span style="display:flex;align-items:center;gap:10px"><span style="{{ badge5Style }}">5</span>Rebalancing rule</span><span>{{ rebalanceChevron }}</span>
+        </button>
+        <div class="pbt-acc-body" data-open="{{ rebalanceOpen }}" style="margin-top:10px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"><span class="pbt-pill">{{ rebalanceRequirementLabel }}</span><span class="pbt-pill">Optional unless objective is rebalancing impact</span></div>
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Select" label="Mode" options="{{ rebalanceOptions }}" value="{{ rebalanceMode }}" onChange="{{ onRebalanceMode }}" hint-size="100%,68px"></x-import>
+        </div>
+      </div>
+
+      <div>
+        <button onClick="{{ toggleDividends }}" style="all:unset;cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;font-size:15px;font-weight:var(--weight-semibold);padding:6px 0">
+          <span style="display:flex;align-items:center;gap:10px"><span style="{{ badge6Style }}">6</span>Dividends &amp; costs</span><span>{{ dividendsChevron }}</span>
+        </button>
+        <div class="pbt-acc-body" data-open="{{ dividendsOpen }}" style="display:flex;flex-direction:column;gap:12px;margin-top:10px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pbt-pill">Advanced assumptions</span><span class="pbt-pill">Editable</span></div>
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Switch" label="Use adjusted close" checked="{{ useAdjClose }}" onChange="{{ onUseAdjClose }}" hint-size="auto,40px"></x-import>
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Switch" label="Reinvest dividends" checked="{{ reinvestDividends }}" onChange="{{ onReinvestDividends }}" disabled="{{ reinvestDisabled }}" hint-size="auto,40px"></x-import>
+          <p style="font-size:12px;color:var(--text-muted);margin:-4px 0 0;line-height:1.5">Applied to both portfolio and benchmark, consistently, in this sample engine. Turning off adjusted close also turns off reinvestment.</p>
+          <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="number" label="Annual drag / expense ratio (%)" value="{{ annualDrag }}" onChange="{{ onAnnualDrag }}" hint-size="100%,68px"></x-import>
+          <div style="display:flex;gap:10px;min-width:0">
+            <div style="flex:1;min-width:0"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="number" label="Transaction cost (bps)" value="{{ transactionCost }}" onChange="{{ onTransactionCost }}" hint-size="100%,68px"></x-import></div>
+            <div style="flex:1;min-width:0"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Input" type="number" label="Slippage (bps)" value="{{ slippageBps }}" onChange="{{ onSlippageBps }}" hint-size="100%,68px"></x-import></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--qs-border);padding-top:16px">
+        <span style="font-size:15px;font-weight:var(--weight-semibold);display:flex;align-items:center;gap:10px"><span style="{{ badge7Style }}">7</span>Review &amp; run</span>
+        <p style="font-size:14px;line-height:1.55;color:var(--text-muted);margin:10px 0">{{ assumptionSummary }}</p>
+        <sc-for list="{{ warnings }}" as="w" hint-placeholder-count="0">
+          <div style="margin-bottom:8px"><x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Status" tone="warning" hint-size="auto,24px">{{ w }}</x-import></div>
+        </sc-for>
+        <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Button" variant="primary" onClick="{{ runBacktest }}" disabled="{{ runDisabled }}" style="width:100%;margin-top:6px" hint-size="100%,48px">{{ runButtonLabel }}</x-import>
+
+        <sc-if value="{{ isRunning }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:14px">
+            <sc-for list="{{ progressSteps }}" as="step" hint-placeholder-count="7">
+              <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:{{ step.color }}">
+                <span style="width:16px;height:16px;flex:none;display:flex;align-items:center;justify-content:center">{{ step.icon }}</span>
+                {{ step.label }}
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:24px 28px;min-width:0">
+      <div style="display:flex;gap:4px;border-bottom:1px solid var(--qs-border);margin-bottom:24px;overflow-x:auto">
+        <sc-for list="{{ tabs }}" as="tab" hint-placeholder-count="8">
+          <button onClick="{{ tab.onClick }}" style="all:unset;cursor:pointer;flex:none;white-space:nowrap;padding:10px 16px;font-size:14px;font-weight:var(--weight-medium);color:{{ tab.color }};border-bottom:2px solid {{ tab.borderColor }}">{{ tab.label }}</button>
+        </sc-for>
+      </div>
+
+      <sc-if value="{{ notReady }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:80px 20px;color:var(--text-muted)">
+          <p style="font-size:16px;max-width:420px;line-height:1.6">Set up your portfolio and assumptions on the left, then run a backtest to see growth, drawdown, returns, and risk metrics here.</p>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showSummary }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:860px;display:flex;flex-direction:column;gap:22px">
+          <div style="padding:20px;border:1px solid var(--qs-border);border-radius:var(--radius-md);background:var(--surface-inset)">
+            <div style="font-size:13px;color:var(--text-muted);margin-bottom:6px">Objective summary</div>
+            <div style="font-size:24px;font-weight:var(--weight-semibold);margin-bottom:10px">{{ objectiveSummaryTitle }}</div>
+            <p style="font-size:14px;line-height:1.65;color:var(--text-body);max-width:760px;margin:0">{{ objectiveSummaryText }}</p>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:18px">
+            <sc-for list="{{ objectiveSummaryMetrics }}" as="m" hint-placeholder-count="6">
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Metric" label="{{ m.label }}" value="{{ m.value }}" unit="{{ m.unit }}" period="{{ m.period }}" comparator="{{ m.comparator }}" direction="{{ m.direction }}" hint-size="190px,84px"></x-import>
+            </sc-for>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px">
+            <sc-for list="{{ alwaysOnCards }}" as="card" hint-placeholder-count="4">
+              <button onClick="{{ card.onClick }}" style="all:unset;cursor:pointer;border:1px solid var(--qs-border);border-radius:var(--radius-sm);padding:14px;background:#fff">
+                <div style="font-size:13.5px;font-weight:var(--weight-semibold);margin-bottom:6px">{{ card.title }}</div>
+                <div style="font-size:12.5px;color:var(--text-muted);line-height:1.45">{{ card.body }}</div>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showOverview }}" hint-placeholder-val="{{ false }}">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));grid-auto-rows:minmax(88px,auto);gap:24px 20px">
+          <sc-for list="{{ overviewMetrics }}" as="m" hint-placeholder-count="8">
+            <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Metric" label="{{ m.label }}" value="{{ m.value }}" unit="{{ m.unit }}" period="{{ m.period }}" comparator="{{ m.comparator }}" direction="{{ m.direction }}" hint-size="210px,88px"></x-import>
+          </sc-for>
+        </div>
+        <sc-if value="{{ cfEnabled }}" hint-placeholder-val="{{ false }}">
+          <p style="font-size:12.5px;color:var(--text-muted);margin-top:16px;max-width:640px">CAGR and total return above are time-weighted (TWRR) — they exclude the effect of deposit/withdrawal timing. See the Cashflows tab for money-weighted (MWRR) and net-dollar figures.</p>
+        </sc-if>
+      </sc-if>
+
+      <sc-if value="{{ showGrowth }}" hint-placeholder-val="{{ false }}">
+        <div>
+          <div style="display:flex;gap:20px;font-size:13px;color:var(--text-muted);margin-bottom:12px">
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--qs-primary);margin-right:6px"></span>Portfolio</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--qs-secondary);margin-right:6px"></span>Benchmark ({{ benchmark }})</span>
+            <sc-if value="{{ cfEnabled }}" hint-placeholder-val="{{ false }}"><span><span style="display:inline-block;width:14px;height:2px;background:var(--text-disabled);margin-right:6px;vertical-align:middle"></span>Net invested</span></sc-if>
+          </div>
+          <svg width="760" height="280" viewBox="0 0 760 280">
+            <line x1="8" y1="272" x2="752" y2="272" stroke="var(--qs-border)"></line>
+            <path d="{{ netInvestedPath }}" fill="none" stroke="var(--qs-text-disabled)" stroke-width="1.5" stroke-dasharray="4 4"></path>
+            <path d="{{ benchmarkPath }}" fill="none" stroke="var(--qs-secondary)" stroke-width="2"></path>
+            <path d="{{ portfolioPath }}" fill="none" stroke="var(--qs-primary)" stroke-width="2.5"></path>
+          </svg>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-disabled);margin-top:4px">
+            <span>{{ startDate }} · {{ startValueLabel }}</span><span>{{ endDate }} · {{ endValueLabel }}</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showDrawdown }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:24px">
+          <div>
+            <svg width="760" height="220" viewBox="0 0 760 220">
+              <line x1="8" y1="8" x2="752" y2="8" stroke="var(--qs-border)"></line>
+              <path d="{{ benchDdPath }}" fill="none" stroke="var(--qs-secondary)" stroke-width="2"></path>
+              <path d="{{ ddAreaPath }}" fill="color-mix(in srgb, var(--qs-error) 18%, transparent)" stroke="var(--qs-error)" stroke-width="2"></path>
+            </svg>
+            <div style="display:flex;gap:24px;margin-top:16px">
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Surface" variant="outlined" padding="16px" hint-size="240px,90px">
+                <div style="font-size:12.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">Worst drawdown</div>
+                <div style="font-family:var(--font-data);font-size:24px;margin-top:6px">{{ worstDrawdownLabel }}</div>
+              </x-import>
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Surface" variant="outlined" padding="16px" hint-size="240px,90px">
+                <div style="font-size:12.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">Benchmark worst drawdown</div>
+                <div style="font-family:var(--font-data);font-size:24px;margin-top:6px">{{ benchWorstDrawdownLabel }}</div>
+              </x-import>
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Surface" variant="outlined" padding="16px" hint-size="240px,90px">
+                <div style="font-size:12.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">Ulcer Index</div>
+                <div style="font-family:var(--font-data);font-size:24px;margin-top:6px">{{ ulcerIndexLabel }}</div>
+              </x-import>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:var(--weight-medium);margin-bottom:10px">Worst drawdown periods</div>
+            <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.DataTable" columns="{{ ddColumns }}" rows="{{ ddRows }}" hint-size="100%,200px"></x-import>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showReturns }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:28px">
+          <div>
+            <div style="font-size:14px;font-weight:var(--weight-medium);margin-bottom:10px">Annual returns</div>
+            <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.DataTable" columns="{{ annualColumns }}" rows="{{ annualRows }}" hint-size="100%,240px"></x-import>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:var(--weight-medium);margin-bottom:10px">Monthly returns heatmap (%)</div>
+            <div style="overflow-x:auto">
+              <div style="display:flex;gap:2px;margin-bottom:4px">
+                <div style="width:44px;flex:none"></div>
+                <sc-for list="{{ monthHeaders }}" as="mh" hint-placeholder-count="12">
+                  <div style="width:22px;font-size:10px;text-align:center;color:var(--text-disabled)">{{ mh }}</div>
+                </sc-for>
+              </div>
+              <sc-for list="{{ monthlyGridRows }}" as="grow" hint-placeholder-count="5">
+                <div style="display:flex;gap:2px;margin-bottom:2px">
+                  <div style="width:44px;flex:none;font-size:12px;color:var(--text-muted);display:flex;align-items:center">{{ grow.year }}</div>
+                  <sc-for list="{{ grow.cells }}" as="cell" hint-placeholder-count="12">
+                    <div style="{{ cell.style }}" title="{{ cell.title }}">{{ cell.label }}</div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:flex;gap:20px;flex-wrap:wrap">
+            <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Metric" label="Best month" value="{{ bestMonthLabel }}" unit="{{ bestMonthDate }}" hint-size="200px,70px"></x-import>
+            <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Metric" label="Worst month" value="{{ worstMonthLabel }}" unit="{{ worstMonthDate }}" hint-size="200px,70px"></x-import>
+            <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Metric" label="Best year" value="{{ bestYearLabel }}" hint-size="200px,70px"></x-import>
+            <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Metric" label="Worst year" value="{{ worstYearLabel }}" hint-size="200px,70px"></x-import>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:var(--weight-medium);margin-bottom:10px">Monthly return distribution</div>
+            <div style="display:flex;align-items:flex-end;gap:4px;height:80px">
+              <sc-for list="{{ histogramBars }}" as="b" hint-placeholder-count="10">
+                <div style="{{ b.style }}" title="{{ b.title }}"></div>
+              </sc-for>
+            </div>
+            <div style="display:flex;gap:20px;margin-top:12px">
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Metric" label="Skewness" value="{{ skewnessLabel }}" hint-size="160px,68px"></x-import>
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Metric" label="Excess kurtosis" value="{{ kurtosisLabel }}" hint-size="160px,68px"></x-import>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showMetrics }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:24px">
+          <sc-for list="{{ metricGroups }}" as="grp" hint-placeholder-count="4">
+            <div>
+              <div style="font-size:14px;font-weight:var(--weight-medium);margin-bottom:8px">{{ grp.title }}</div>
+              <div style="border-top:1px solid var(--qs-border)">
+                <sc-for list="{{ grp.items }}" as="it" hint-placeholder-count="4">
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--qs-border)">
+                    <span style="font-size:14px;color:var(--text-body)">{{ it.label }}</span>
+                    <div style="display:flex;align-items:center;gap:14px">
+                      <span style="font-family:var(--font-data);font-size:14px">{{ it.value }}</span>
+                      <button onClick="{{ it.onFormula }}" style="all:unset;cursor:pointer;font-size:12px;color:var(--qs-primary);border:1px solid var(--qs-border-strong);border-radius:99px;width:22px;height:22px;display:flex;align-items:center;justify-content:center">ƒ</button>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+          <div>
+            <div style="font-size:14px;font-weight:var(--weight-medium);margin-bottom:8px">Correlation matrix</div>
+            <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.DataTable" columns="{{ corrColumns }}" rows="{{ corrRows }}" hint-size="100%,200px"></x-import>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showCashflows }}" hint-placeholder-val="{{ false }}">
+        <sc-if value="{{ cfEnabled }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:24px">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));grid-auto-rows:minmax(88px,auto);gap:20px">
+              <sc-for list="{{ cashflowMetrics }}" as="m" hint-placeholder-count="6">
+                <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Metric" label="{{ m.label }}" value="{{ m.value }}" unit="{{ m.unit }}" hint-size="180px,88px"></x-import>
+              </sc-for>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:var(--weight-medium);margin-bottom:10px">Cashflow events</div>
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.DataTable" columns="{{ cfColumns }}" rows="{{ cfRows }}" cutoff="{{ cfCutoffNote }}" hint-size="100%,240px"></x-import>
+            </div>
+            <p style="font-size:13px;color:var(--text-muted);line-height:1.55;max-width:680px">Ending value/CAGR elsewhere use time-weighted (TWRR) returns, which exclude cashflow timing. MWRR/IRR above reflects your actual dollar experience given when money went in or out.
+              <button onClick="{{ openTwrrFormula }}" style="all:unset;cursor:pointer;color:var(--qs-primary);font-size:13px;margin-left:4px">TWRR formula ›</button>
+              <button onClick="{{ openMwrrFormula }}" style="all:unset;cursor:pointer;color:var(--qs-primary);font-size:13px;margin-left:10px">MWRR formula ›</button></p>
+          </div>
+        </sc-if>
+        <sc-if value="{{ cfDisabledMsg }}" hint-placeholder-val="{{ false }}">
+          <p style="color:var(--text-muted);font-size:14px">Cashflows are disabled for this run. Enable them in the left panel to model contributions or withdrawals.</p>
+        </sc-if>
+      </sc-if>
+
+      <sc-if value="{{ showRebalancing }}" hint-placeholder-val="{{ false }}">
+        <sc-if value="{{ rebalOn }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:24px">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));grid-auto-rows:minmax(88px,auto);gap:20px">
+              <sc-for list="{{ rebalanceMetrics }}" as="m" hint-placeholder-count="4">
+                <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Metric" label="{{ m.label }}" value="{{ m.value }}" unit="{{ m.unit }}" hint-size="180px,88px"></x-import>
+              </sc-for>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:var(--weight-medium);margin-bottom:10px">Target vs current allocation</div>
+              <sc-for list="{{ allocationRows }}" as="a" hint-placeholder-count="3">
+                <div style="margin-bottom:10px">
+                  <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--text-muted);margin-bottom:4px"><span>{{ a.ticker }}</span><span>{{ a.label }}</span></div>
+                  <div style="position:relative;height:8px;background:var(--surface-inset);border-radius:99px">
+                    <div style="{{ a.targetStyle }}"></div>
+                    <div style="{{ a.currentStyle }}"></div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:var(--weight-medium);margin-bottom:10px">Rebalance events</div>
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.DataTable" columns="{{ rebalColumns }}" rows="{{ rebalRows }}" hint-size="100%,240px"></x-import>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ rebalOffMsg }}" hint-placeholder-val="{{ false }}">
+          <p style="color:var(--text-muted);font-size:14px">Rebalancing is set to "None" for this run. Change the rebalancing rule in the left panel to see events here.</p>
+        </sc-if>
+      </sc-if>
+
+      <sc-if value="{{ showReport }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:760px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+            <sc-for list="{{ exportFiles }}" as="f" hint-placeholder-count="9">
+              <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Button" variant="outlined" size="sm" onClick="{{ f.onClick }}" hint-size="auto,36px">{{ f.name }}</x-import>
+            </sc-for>
+          </div>
+          <div style="background:var(--surface-inset);border-radius:var(--radius-md);padding:28px">
+            <sc-for list="{{ reportSections }}" as="sec" hint-placeholder-count="6">
+              <div style="margin-bottom:22px">
+                <div style="font-size:15px;font-weight:var(--weight-semibold);margin-bottom:6px">{{ sec.heading }}</div>
+                <p style="font-size:14px;line-height:1.65;color:var(--text-body);white-space:pre-line;margin:0">{{ sec.body }}</p>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="{{ drawerStyle }}">
+      <div style="width:340px;padding:20px;box-sizing:border-box;height:100%;overflow-y:auto">
+        <sc-if value="{{ isAssumptionsView }}" hint-placeholder-val="{{ true }}">
+          <div style="font-size:15px;font-weight:var(--weight-semibold);margin-bottom:14px">Run assumptions</div>
+          <p style="font-size:13.5px;line-height:1.6;color:var(--text-muted);margin-bottom:18px">{{ assumptionSummary }}</p>
+          <sc-for list="{{ assumptionRows }}" as="a" hint-placeholder-count="9">
+            <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--qs-border);font-size:13px">
+              <span style="color:var(--text-muted)">{{ a.label }}</span><span>{{ a.value }}</span>
+            </div>
+          </sc-for>
+          <div style="font-size:15px;font-weight:var(--weight-semibold);margin:22px 0 10px">Formulas</div>
+          <sc-for list="{{ formulaList }}" as="fm" hint-placeholder-count="10">
+            <button onClick="{{ fm.onClick }}" style="all:unset;cursor:pointer;display:block;width:100%;padding:8px 0;font-size:13.5px;color:var(--qs-primary);border-bottom:1px solid var(--qs-border)">{{ fm.name }}</button>
+          </sc-for>
+        </sc-if>
+        <sc-if value="{{ isFormulaView }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ backToAssumptions }}" style="all:unset;cursor:pointer;font-size:13px;color:var(--qs-primary);margin-bottom:14px;display:block">‹ Back</button>
+          <div style="font-size:16px;font-weight:var(--weight-semibold);margin-bottom:12px">{{ activeFormulaName }}</div>
+          <div style="background:var(--surface-inset);border-radius:var(--radius-sm);padding:12px;font-family:var(--font-data);font-size:13px;margin-bottom:14px;white-space:pre-wrap">{{ activeFormulaFormula }}</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px"><b style="color:var(--text-body)">Variables:</b> {{ activeFormulaVariables }}</div>
+          <div style="font-size:13.5px;line-height:1.55;margin-bottom:14px">{{ activeFormulaInterpretation }}</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px"><b style="color:var(--text-body)">Implementation note:</b> {{ activeFormulaNote }}</div>
+          <div style="font-size:13px;color:var(--qs-warning)"><b>Common trap:</b> {{ activeFormulaTrap }}</div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+
+  <x-import component-from-global-scope="QuantCornerQuantSerasDesignSystem_50ce1a.Dialog" open="{{ importDialogOpen }}" title="Import Webull CSV" onClose="{{ closeImportDialog }}" actions="{{ importDialogActions }}" hint-size="400px,200px">
+    Webull order-history CSV import needs a real sample export to map its columns correctly. For now, use manual ticker/weight entry or Load example — CSV import will be wired up once a sample file is available.
+  </x-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const PROGRESS_LABELS = ["Validating inputs","Generating sample series","Aligning dates","Calculating returns","Simulating portfolio","Calculating metrics","Generating report"];
+const TAB_DEFS = [
+  { id: "summary", label: "Summary" }, { id: "overview", label: "Overview" }, { id: "growth", label: "Growth" }, { id: "drawdown", label: "Drawdown" },
+  { id: "returns", label: "Returns" }, { id: "metrics", label: "Metrics" }, { id: "cashflows", label: "Cashflows" },
+  { id: "rebalancing", label: "Rebalancing" }, { id: "report", label: "Report" },
+];
+const PALETTE = ["#6200EE", "#03DAC6", "#8A6D00", "#0D5AA7", "#B00020", "#1B8A5A"];
+const MONTH_HEADERS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+const OBJECTIVES = {
+  past_performance: {
+    title: "Past Performance",
+    subtitle: "How did this portfolio behave historically?",
+    description: "Backtest a static allocation against a benchmark with clean historical-performance outputs.",
+    required: "portfolio, dates, capital, benchmark",
+    optional: "rebalancing, costs",
+    preset: { cashflow: { enabled: false, type: "contribution", amount: 0, frequency: "monthly", start: "2015-01-01", end: "", timing: "end" }, rebalanceMode: "annual", initialCapital: 10000, benchmark: "SPY", transactionCost: 0, slippageBps: 0 },
+    notice: "Past Performance preset applied: cashflows off, annual rebalance, SPY benchmark, no trading costs."
+  },
+  monthly_dca: {
+    title: "Monthly DCA",
+    subtitle: "What if I invested every month?",
+    description: "Model a real monthly investing plan with net invested capital, MWRR/IRR, and cashflow events.",
+    required: "portfolio, monthly amount, dates, capital",
+    optional: "cashflow timing, rebalance",
+    preset: { cashflow: { enabled: true, type: "contribution", amount: 500, frequency: "monthly", start: "2015-01-01", end: "", timing: "end" }, rebalanceMode: "annual", initialCapital: 10000, benchmark: "SPY", transactionCost: 0, slippageBps: 0 },
+    notice: "Monthly DCA preset applied: contribution cashflow on, $500/month, annual rebalance, SPY benchmark."
+  },
+  monthly_withdrawal: {
+    title: "Monthly Withdrawal",
+    subtitle: "What if I withdrew money every month?",
+    description: "Stress a decumulation or spending plan against drawdowns, benchmark risk, and ending value.",
+    required: "portfolio, withdrawal amount, dates, starting capital",
+    optional: "cashflow timing, cost drag",
+    preset: { cashflow: { enabled: true, type: "withdrawal", amount: 1000, frequency: "monthly", start: "2015-01-01", end: "", timing: "end" }, rebalanceMode: "annual", initialCapital: 100000, benchmark: "SPY", transactionCost: 0, slippageBps: 0 },
+    notice: "Monthly Withdrawal preset applied: withdrawal cashflow on, $1,000/month, $100,000 starting capital."
+  },
+  rebalancing_impact: {
+    title: "Rebalancing Impact",
+    subtitle: "Does rebalancing help after turnover and costs?",
+    description: "Focus on turnover, target-vs-current drift, cost drag, and rebalance event evidence.",
+    required: "portfolio, dates, rebalance mode",
+    optional: "transaction cost, slippage",
+    preset: { cashflow: { enabled: false, type: "contribution", amount: 0, frequency: "monthly", start: "2015-01-01", end: "", timing: "end" }, rebalanceMode: "annual", initialCapital: 10000, benchmark: "SPY", transactionCost: 5, slippageBps: 0 },
+    notice: "Rebalancing Impact preset applied: cashflows off, annual rebalance, 5 bps transaction cost."
+  }
+};
+
+function fmtUSD(n) { return "$" + Math.round(n || 0).toLocaleString("en-US"); }
+function fmtPct(n, d) { return (n == null ? "n/a" : (n || 0).toFixed(d == null ? 1 : d) + "%"); }
+function fmtSigned(n, d) { if (n == null) return "n/a"; const v = n || 0; return (v >= 0 ? "+" : "") + v.toFixed(d == null ? 1 : d) + "%"; }
+
+function buildPath(values, w, h, pad) {
+  pad = pad || 10;
+  const min = Math.min.apply(null, values), max = Math.max.apply(null, values);
+  const range = max - min || 1;
+  return values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (w - 2 * pad);
+    const y = pad + (1 - (v - min) / range) * (h - 2 * pad);
+    return (i === 0 ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+}
+function buildAreaPath(values, w, h, pad) {
+  pad = pad || 10;
+  const min = Math.min.apply(null, values.concat([0])), max = 0;
+  const range = max - min || 1;
+  const pts = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (w - 2 * pad);
+    const y = pad + (1 - (v - min) / range) * (h - 2 * pad);
+    return [x, y];
+  });
+  const top = pad + (1 - (0 - min) / range) * (h - 2 * pad);
+  let d = "M" + pts[0][0].toFixed(1) + "," + top.toFixed(1);
+  pts.forEach((p) => { d += " L" + p[0].toFixed(1) + "," + p[1].toFixed(1); });
+  d += " L" + pts[pts.length - 1][0].toFixed(1) + "," + top.toFixed(1) + " Z";
+  return d;
+}
+function toCsv(headers, rows) {
+  const esc = (v) => (typeof v === "string" && v.includes(",")) ? '"' + v + '"' : v;
+  return [headers.join(","), ...rows.map((r) => r.map(esc).join(","))].join("\n");
+}
+
+class Component extends DCLogic {
+  state = {
+    objective: "monthly_dca",
+    presetNotice: "Monthly DCA preset applied: contribution cashflow on, $500/month, annual rebalance, SPY benchmark.",
+    portfolio: [{ id: 1, ticker: "AAPL", weight: 30 }, { id: 2, ticker: "MSFT", weight: 30 }, { id: 3, ticker: "SPY", weight: 40 }],
+    benchmark: "SPY", startDate: "2015-01-01", endDate: "2025-12-31", initialCapital: 10000, useMaxOverlap: true,
+    cashflow: { enabled: true, type: "contribution", amount: 500, frequency: "monthly", start: "2015-01-01", end: "", timing: "end" },
+    rebalanceMode: "annual",
+    useAdjClose: true, reinvestDividends: true, annualDrag: 0, transactionCost: 5, slippageBps: 0, riskFreeRate: 2,
+    dataOpen: true, settingsOpen: true, cashflowOpen: true, rebalanceOpen: true, dividendsOpen: false,
+    runStatus: "idle", runStepIndex: 0,
+    activeTab: "summary", results: null,
+    rightDrawerOpen: false, drawerView: "assumptions", activeFormulaKey: null,
+    importDialogOpen: false,
+  };
+  nextId = 4;
+
+  componentDidMount() {
+    import("./backtestEngine.js").then((m) => { this.engine = m; this.forceUpdate(); });
+    import("./formulas.js").then((m) => { this.formulas = m.FORMULAS; this.forceUpdate(); });
+  }
+
+  addAsset = () => this.setState((s) => ({ portfolio: [...s.portfolio, { id: this.nextId++, ticker: "", weight: 0 }] }));
+  removeAsset = (id) => this.setState((s) => ({ portfolio: s.portfolio.filter((p) => p.id !== id) }));
+  updateTicker = (id, val) => this.setState((s) => ({ portfolio: s.portfolio.map((p) => p.id === id ? { ...p, ticker: val.toUpperCase() } : p) }));
+  updateWeight = (id, val) => this.setState((s) => ({ portfolio: s.portfolio.map((p) => p.id === id ? { ...p, weight: Number(val) } : p) }));
+  normalizeWeights = () => this.setState((s) => {
+    const sum = s.portfolio.reduce((a, p) => a + Number(p.weight || 0), 0) || 1;
+    return { portfolio: s.portfolio.map((p) => ({ ...p, weight: Math.round((Number(p.weight || 0) / sum) * 1000) / 10 })) };
+  });
+
+  applyObjective = (objective) => {
+    const def = OBJECTIVES[objective] || OBJECTIVES.monthly_dca;
+    const preset = def.preset || {};
+    this.setState((s) => ({
+      objective,
+      presetNotice: def.notice,
+      activeTab: s.results ? "summary" : s.activeTab,
+      cashflow: { ...s.cashflow, ...(preset.cashflow || {}) },
+      rebalanceMode: preset.rebalanceMode != null ? preset.rebalanceMode : s.rebalanceMode,
+      initialCapital: preset.initialCapital != null ? preset.initialCapital : s.initialCapital,
+      benchmark: preset.benchmark != null ? preset.benchmark : s.benchmark,
+      transactionCost: preset.transactionCost != null ? preset.transactionCost : s.transactionCost,
+      slippageBps: preset.slippageBps != null ? preset.slippageBps : s.slippageBps,
+      useAdjClose: true,
+      reinvestDividends: true,
+      dataOpen: false,
+      settingsOpen: true,
+      cashflowOpen: objective === "monthly_dca" || objective === "monthly_withdrawal",
+      rebalanceOpen: objective === "rebalancing_impact",
+      dividendsOpen: false,
+    }));
+  };
+
+  loadExample = () => this.setState({
+    objective: "monthly_dca",
+    presetNotice: OBJECTIVES.monthly_dca.notice,
+    portfolio: [{ id: 1, ticker: "AAPL", weight: 30 }, { id: 2, ticker: "MSFT", weight: 30 }, { id: 3, ticker: "SPY", weight: 40 }],
+    benchmark: "SPY", startDate: "2015-01-01", endDate: "2025-12-31", initialCapital: 10000, useMaxOverlap: true,
+    cashflow: { enabled: true, type: "contribution", amount: 500, frequency: "monthly", start: "2015-01-01", end: "", timing: "end" },
+    rebalanceMode: "annual", useAdjClose: true, reinvestDividends: true, annualDrag: 0, transactionCost: 5, slippageBps: 0, riskFreeRate: 2,
+    activeTab: "summary",
+  });
+
+  toggleData = () => this.setState((s) => ({ dataOpen: !s.dataOpen }));
+  toggleSettings = () => this.setState((s) => ({ settingsOpen: !s.settingsOpen }));
+  toggleCashflow = () => this.setState((s) => ({ cashflowOpen: !s.cashflowOpen }));
+  toggleRebalance = () => this.setState((s) => ({ rebalanceOpen: !s.rebalanceOpen }));
+  toggleDividends = () => this.setState((s) => ({ dividendsOpen: !s.dividendsOpen }));
+  toggleDrawer = () => this.setState((s) => ({ rightDrawerOpen: !s.rightDrawerOpen, drawerView: "assumptions" }));
+  openImportDialog = () => this.setState({ importDialogOpen: true });
+  closeImportDialog = () => this.setState({ importDialogOpen: false });
+  setTab = (id) => this.setState({ activeTab: id });
+  goToReport = () => this.setState({ activeTab: "report" });
+  openFormula = (key) => this.setState({ rightDrawerOpen: true, drawerView: "formula", activeFormulaKey: key });
+  openTwrrFormula = () => this.openFormula("twrr");
+  openMwrrFormula = () => this.openFormula("mwrr");
+  backToAssumptions = () => this.setState({ drawerView: "assumptions" });
+
+  buildEngineInput() {
+    const s = this.state;
+    return {
+      objective: s.objective,
+      portfolio: s.portfolio.map((p) => ({ ticker: (p.ticker || "").toUpperCase(), weight: Number(p.weight) || 0 })),
+      benchmark: (s.benchmark || "SPY").toUpperCase(), startDate: s.startDate, endDate: s.endDate,
+      initialCapital: Number(s.initialCapital) || 10000, rebalanceMode: s.rebalanceMode, cashflow: { ...s.cashflow },
+      annualDrag: Number(s.annualDrag) || 0, transactionCost: Number(s.transactionCost) || 0, slippageBps: Number(s.slippageBps) || 0,
+      riskFreeRate: Number(s.riskFreeRate), useAdjClose: s.useAdjClose, reinvestDividends: s.reinvestDividends,
+    };
+  }
+
+  runBacktest = () => {
+    if (!this.engine) return;
+    clearTimeout(this._timer);
+    this.setState({ runStatus: "running", runStepIndex: 0 });
+    const tick = (i) => {
+      if (i < PROGRESS_LABELS.length) {
+        this.setState({ runStepIndex: i });
+        this._timer = setTimeout(() => tick(i + 1), 260);
+      } else {
+        const results = this.engine.generateResults(this.buildEngineInput());
+        this.setState({ results, runStatus: "done", runStepIndex: PROGRESS_LABELS.length, activeTab: "summary" });
+      }
+    };
+    tick(0);
+  };
+
+  download(filename, content, mime) {
+    const blob = new Blob([content], { type: mime || "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  exportRunConfig = () => { this.download("run_config.json", JSON.stringify(this.buildEngineInput(), null, 2), "application/json"); };
+  exportMetrics = () => { const r = this.state.results; if (!r) return; this.download("metrics.json", JSON.stringify(r.metrics, null, 2), "application/json"); };
+  exportHoldings = () => { const s = this.state; this.download("holdings_normalized.csv", toCsv(["ticker", "weight_pct"], s.portfolio.map((p) => [p.ticker, p.weight])), "text/csv"); };
+  exportPortfolioValues = () => { const r = this.state.results; if (!r) return; this.download("portfolio_values.csv", toCsv(["date", "portfolio_value", "benchmark_value", "net_invested"], r.dates.map((d, i) => [d, r.portfolioValues[i].toFixed(2), r.benchmarkValues[i].toFixed(2), r.netInvested[i].toFixed(2)])), "text/csv"); };
+  exportReturnsMatrix = () => { const r = this.state.results; if (!r) return; this.download("returns_matrix.csv", toCsv(["date", "portfolio_return", "benchmark_return"], r.monthlyPortReturns.map((v, i) => [r.dates[i + 1], (v * 100).toFixed(4), (r.monthlyBenchReturns[i] * 100).toFixed(4)])), "text/csv"); };
+  exportCashflowEvents = () => { const r = this.state.results; if (!r) return; this.download("cashflow_events.csv", toCsv(["date", "type", "amount", "running_invested"], r.cashflowEvents.map((e) => [e.date, e.type, e.amount.toFixed(2), e.runningInvested])), "text/csv"); };
+  exportRebalanceEvents = () => { const r = this.state.results; if (!r) return; this.download("rebalance_events.csv", toCsv(["date", "turnover_pct", "cost_drag_pct"], r.rebalanceEvents.map((e) => [e.date, e.turnoverPct.toFixed(2), e.costDrag.toFixed(3)])), "text/csv"); };
+  exportPricesAligned = () => { const r = this.state.results; if (!r) return; this.download("prices_aligned.csv", toCsv(["date", "portfolio_index", "benchmark_index"], r.dates.map((d, i) => [d, (r.portfolioValues[i] / r.portfolioValues[0] * 100).toFixed(3), (r.benchmarkValues[i] / r.benchmarkValues[0] * 100).toFixed(3)])), "text/csv"); };
+  exportReportMd = () => { this.download("report.md", this.buildReportSections().map((s) => "## " + s.heading + "\n\n" + s.body).join("\n\n"), "text/markdown"); };
+
+  buildReportSections() {
+    const s = this.state, r = s.results;
+    const port = s.portfolio.map((p) => p.ticker + " " + p.weight + "%").join(", ");
+    if (!r) return [{ heading: "Objective", body: "Run a backtest to generate the full report." }];
+    const m = r.metrics;
+    const obj = OBJECTIVES[s.objective] || OBJECTIVES.monthly_dca;
+    return [
+      { heading: "Objective", body: obj.title + ": " + obj.description + " Portfolio: " + port + ". Benchmark: " + s.benchmark + "." },
+      { heading: "Data Source & Quality", body: "Data source: sample data, seeded deterministically from this run's own inputs (no live prices fetched). Requested coverage: " + s.startDate + " to " + s.endDate + " (" + m.years.toFixed(1) + " years, monthly frequency). Price basis: " + (s.useAdjClose ? "adjusted close" : "raw close") + ", dividends " + (m.dividendsIncluded ? "reinvested" : "not reinvested") + ". No missing-data or corporate-action handling is modeled in this sample engine." },
+      { heading: "Assumptions", body: this.state.assumptionSummaryCache || "" },
+      { heading: "Methodology", body: "Pipeline: validated portfolio -> sample price series -> aligned monthly index -> per-asset return simulation -> portfolio value simulation with cashflow and rebalance events -> benchmark comparison -> metrics -> charts -> report artifacts. Portfolio return each month is value-weighted across assets using prior-month weights: r_p,t = sum_i w_i,t-1 * r_i,t. Risk-free rate: " + m.riskFreeRateUsed.toFixed(2) + "%/yr, used in Sharpe, Sortino, and alpha." },
+      { heading: "Cashflow & Rebalancing Methodology", body: (s.cashflow.enabled ? ("Cashflow: " + s.cashflow.type + " " + fmtUSD(s.cashflow.amount) + " " + s.cashflow.frequency + ", applied at period-" + (s.cashflow.timing === "end" ? "end" : "start") + ", allocated pro-rata across current holdings.") : "No scheduled cashflow.") + " Rebalancing: " + s.rebalanceMode + (s.rebalanceMode !== "none" ? (", trading real per-asset drift back to target weights, with " + (Number(s.transactionCost) + Number(s.slippageBps)) + " bps combined transaction cost + slippage charged on turnover.") : ".") },
+      { heading: "Results", body: "Ending value " + fmtUSD(m.endValue) + ". Time-weighted CAGR " + fmtSigned(m.cagr) + ", volatility " + fmtPct(m.vol) + ", Sharpe " + m.sharpe.toFixed(2) + ", max drawdown " + fmtPct(m.maxDD) + ", Ulcer Index " + m.ulcerIndex.toFixed(2) + "." + (s.cashflow.enabled ? (" Net invested capital " + fmtUSD(m.netInvestedFinal) + ", net profit " + fmtUSD(m.netProfit) + ", money-weighted return (MWRR/IRR) " + (m.mwrr != null ? fmtSigned(m.mwrr) : "n/a") + ".") : "") },
+      { heading: "Benchmark Comparison", body: "Benchmark (" + s.benchmark + ") CAGR " + fmtSigned(m.benchCagr) + ", excess return " + fmtSigned(m.excessReturn) + ", beta " + m.beta.toFixed(2) + ", alpha " + fmtSigned(m.alpha) + ", tracking error " + fmtPct(m.trackingError) + ", correlation " + m.correlation.toFixed(2) + "." },
+      { heading: "Limitations", body: "Past performance is not indicative of future results. This run uses illustrative, seeded sample data rather than a live price vendor. Known biases not modeled: survivorship bias, lookahead bias, missing corporate-action/dividend event data, currency mismatch, and taxes. TWRR-based headline metrics exclude cashflow timing; MWRR/IRR is reported separately where cashflows are enabled. Treat all figures as directional and reproducible under the same seed, not as investment advice." },
+    ];
+  }
+
+  renderVals() {
+    const s = this.state;
+    const objectiveDef = OBJECTIVES[s.objective] || OBJECTIVES.monthly_dca;
+    const sum = s.portfolio.reduce((a, p) => a + (Number(p.weight) || 0), 0);
+    const weightOk = Math.abs(sum - 100) < 0.05;
+    const tickers = s.portfolio.map((p) => (p.ticker || "").toUpperCase());
+    const dupes = tickers.filter((t, i) => t && tickers.indexOf(t) !== i);
+    const errors = [];
+    if (!weightOk) errors.push("Weights sum to " + sum.toFixed(1) + "%, not 100%.");
+    if (s.portfolio.some((p) => !p.ticker)) errors.push("One or more tickers are empty.");
+    if (dupes.length) errors.push("Duplicate ticker(s): " + Array.from(new Set(dupes)).join(", ") + ".");
+    if (!s.portfolio.length) errors.push("Add at least one asset.");
+    if (new Date(s.startDate) >= new Date(s.endDate)) errors.push("Start date must be before end date.");
+    if (!(Number(s.initialCapital) > 0)) errors.push("Initial capital must be greater than 0.");
+    if (!s.benchmark) errors.push("Benchmark ticker is required.");
+    if (s.cashflow.enabled && Number(s.cashflow.amount) < 0) errors.push("Cashflow amount cannot be negative.");
+    const canRunFinal = errors.length === 0;
+
+    const portfolioOk = weightOk && !dupes.length && s.portfolio.length > 0 && s.portfolio.every((p) => p.ticker);
+    const settingsOk = new Date(s.startDate) < new Date(s.endDate) && Number(s.initialCapital) > 0 && !!s.benchmark;
+    const cashflowOk = !s.cashflow.enabled || Number(s.cashflow.amount) >= 0;
+    const badge = (ok) => "width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none;" + (ok ? "background:var(--qs-success);color:#fff" : "background:var(--surface-inset);color:var(--text-muted)");
+    const requiredDone = (portfolioOk ? 1 : 0) + (settingsOk ? 1 : 0);
+    const setupProgressPct = (requiredDone / 2) * 100;
+    const setupProgressLabel = "Setup " + requiredDone + "/2 ready";
+
+    const allocSegments = s.portfolio.map((p, i) => ({ style: "width:" + Math.max(0, Number(p.weight) || 0) + "%;background:" + PALETTE[i % PALETTE.length] }));
+    const portfolioRows = s.portfolio.map((p) => ({
+      tickerLabel: "Ticker", ticker: p.ticker, weight: p.weight,
+      onTicker: (e) => this.updateTicker(p.id, e.target.value), onWeight: (e) => this.updateWeight(p.id, e.target.value), onRemove: () => this.removeAsset(p.id),
+    }));
+
+    const warnings = [];
+    if (new Date(s.endDate) > new Date("2026-07-27")) warnings.push("End date is beyond today; the run will use max available history through today.");
+    if (new Set(tickers.filter(Boolean)).size < s.portfolio.length) warnings.push("Duplicate tickers will distort weighting — normalize or fix manually.");
+
+    const cf = s.cashflow;
+    const cfLine = cf.enabled ? ("Add " + fmtUSD(cf.amount) + " " + cf.frequency + " (" + cf.type + ") at " + (cf.timing === "end" ? "period-end" : "period-start") + ".") : "No scheduled cashflows.";
+    const rebalLine = s.rebalanceMode === "none" ? "No rebalancing." : ("Rebalance " + s.rebalanceMode + ".");
+    const assumptionSummary = "Backtest " + fmtUSD(s.initialCapital) + " from " + s.startDate + " to " + s.endDate + ". Portfolio: " + s.portfolio.map((p) => p.ticker + " " + p.weight + "%").join(", ") + ". Benchmark: " + s.benchmark + ". " + rebalLine + " " + cfLine + " " + (s.useAdjClose ? "Use adjusted close." : "Use raw close.") + " Risk-free rate " + s.riskFreeRate + "%/yr.";
+    this.state.assumptionSummaryCache = assumptionSummary;
+
+    const isRunning = s.runStatus === "running";
+    const progressSteps = PROGRESS_LABELS.map((label, i) => {
+      const state = i < s.runStepIndex ? "done" : (i === s.runStepIndex && isRunning ? "active" : "pending");
+      return { label, color: state === "pending" ? "var(--text-disabled)" : "var(--text-body)", icon: state === "done" ? "✓" : (state === "active" ? "…" : "") };
+    });
+
+    const hasResults = !!s.results;
+    const r = s.results;
+    const tabs = TAB_DEFS.map((t) => ({
+      label: t.label, onClick: () => this.setTab(t.id),
+      color: s.activeTab === t.id ? "var(--qs-primary)" : "var(--text-muted)",
+      borderColor: s.activeTab === t.id ? "var(--qs-primary)" : "transparent",
+    }));
+
+    let overviewMetrics = [], objectiveSummaryMetrics = [], alwaysOnCards = [], portfolioPath = "", benchmarkPath = "", netInvestedPath = "", ddAreaPath = "", benchDdPath = "";
+    let objectiveSummaryTitle = objectiveDef.title + " Summary", objectiveSummaryText = "Run the backtest to generate a summary tailored to this objective.";
+    let worstDrawdownLabel = "—", benchWorstDrawdownLabel = "—", ulcerIndexLabel = "—", annualColumns = [], annualRows = [], monthlyGridRows = [];
+    let bestMonthLabel = "—", worstMonthLabel = "—", bestMonthDate = "", worstMonthDate = "", bestYearLabel = "—", worstYearLabel = "—";
+    let metricGroups = [], cashflowMetrics = [], cfColumns = [], cfRows = [], cfCutoffNote = "";
+    let rebalanceMetrics = [], rebalColumns = [], rebalRows = [], ddColumns = [], ddRows = [], corrColumns = [], corrRows = [];
+    let histogramBars = [], skewnessLabel = "—", kurtosisLabel = "—", allocationRows = [], startValueLabel = "", endValueLabel = "";
+
+    if (hasResults) {
+      const m = r.metrics;
+      overviewMetrics = [
+        { label: "Ending value", value: fmtUSD(m.endValue), period: s.startDate + " → " + s.endDate },
+        { label: "Total return (TWRR)", value: fmtSigned(m.totalReturnTWRR), unit: "%" },
+        { label: "CAGR (TWRR)", value: fmtSigned(m.cagr), unit: "%", period: "annualized" },
+        { label: "Volatility", value: fmtPct(m.vol), unit: "annualized" },
+        { label: "Sharpe ratio", value: m.sharpe.toFixed(2), period: "rf " + m.riskFreeRateUsed.toFixed(1) + "%/yr" },
+        { label: "Max drawdown", value: fmtPct(m.maxDD), direction: "down" },
+        { label: "Benchmark CAGR", value: fmtSigned(m.benchCagr), unit: "%", period: s.benchmark },
+        { label: "Excess return", value: fmtSigned(m.excessReturn), unit: "%", direction: m.excessReturn >= 0 ? "up" : "down", comparator: "vs " + s.benchmark },
+      ];
+      if (cf.enabled) overviewMetrics.push({ label: "Net invested capital", value: fmtUSD(m.netInvestedFinal) });
+      overviewMetrics.push({ label: "Rebalance count", value: String(m.rebalanceCount), period: s.rebalanceMode });
+
+      const beatText = m.excessReturn >= 0 ? "outperformed" : "underperformed";
+      const surviveText = m.endValue > 0 ? "remained above zero" : "depleted";
+      const dcaText = "You invested " + fmtUSD(m.totalContrib) + " over the run. Ending value was " + fmtUSD(m.endValue) + ", net profit was " + fmtUSD(m.netProfit) + ", and money-weighted return was " + (m.mwrr != null ? fmtSigned(m.mwrr) : "n/a") + ". The TWRR CAGR " + beatText + " " + s.benchmark + " by " + fmtSigned(Math.abs(m.excessReturn)) + " annualized.";
+      const withdrawalText = "You withdrew " + fmtUSD(m.totalWithdraw) + " during the run and the portfolio " + surviveText + " with ending value " + fmtUSD(m.endValue) + ". Worst drawdown was " + fmtPct(m.maxDD) + " and MWRR/IRR was " + (m.mwrr != null ? fmtSigned(m.mwrr) : "n/a") + ".";
+      const rebalText = "The selected rebalancing rule produced " + m.rebalanceCount + " rebalance events, average turnover of " + fmtPct(m.avgTurnover) + ", and estimated cost drag of " + fmtPct(r.rebalanceEvents.reduce((a, e) => a + e.costDrag, 0)) + ". Use the Rebalancing tab to inspect before/after drift evidence.";
+      const pastText = "The portfolio grew from " + fmtUSD(r.portfolioValues[0]) + " to " + fmtUSD(m.endValue) + ". TWRR CAGR was " + fmtSigned(m.cagr) + ", volatility was " + fmtPct(m.vol) + ", Sharpe was " + m.sharpe.toFixed(2) + ", and the portfolio " + beatText + " " + s.benchmark + " by " + fmtSigned(Math.abs(m.excessReturn)) + " annualized.";
+      const summaryTextByObj = { past_performance: pastText, monthly_dca: dcaText, monthly_withdrawal: withdrawalText, rebalancing_impact: rebalText };
+      objectiveSummaryTitle = objectiveDef.title + " Summary";
+      objectiveSummaryText = summaryTextByObj[s.objective] || pastText;
+      if (s.objective === "monthly_dca") {
+        objectiveSummaryMetrics = [
+          { label: "Total contributed", value: fmtUSD(m.totalContrib) }, { label: "Ending value", value: fmtUSD(m.endValue) },
+          { label: "Net profit", value: fmtUSD(m.netProfit) }, { label: "MWRR / IRR", value: m.mwrr != null ? fmtSigned(m.mwrr) : "n/a" },
+          { label: "TWRR CAGR", value: fmtSigned(m.cagr) }, { label: "Excess vs benchmark", value: fmtSigned(m.excessReturn), direction: m.excessReturn >= 0 ? "up" : "down" },
+        ];
+      } else if (s.objective === "monthly_withdrawal") {
+        objectiveSummaryMetrics = [
+          { label: "Total withdrawn", value: fmtUSD(m.totalWithdraw) }, { label: "Ending value", value: fmtUSD(m.endValue) },
+          { label: "Portfolio status", value: m.endValue > 0 ? "Survived" : "Depleted" }, { label: "Worst drawdown", value: fmtPct(m.maxDD), direction: "down" },
+          { label: "MWRR / IRR", value: m.mwrr != null ? fmtSigned(m.mwrr) : "n/a" }, { label: "Ulcer Index", value: m.ulcerIndex.toFixed(2) },
+        ];
+      } else if (s.objective === "rebalancing_impact") {
+        objectiveSummaryMetrics = [
+          { label: "Rebalance count", value: String(m.rebalanceCount) }, { label: "Avg turnover", value: fmtPct(m.avgTurnover) },
+          { label: "Cost drag", value: fmtPct(r.rebalanceEvents.reduce((a, e) => a + e.costDrag, 0)) }, { label: "Ending value", value: fmtUSD(m.endValue) },
+          { label: "Max drawdown", value: fmtPct(m.maxDD), direction: "down" }, { label: "Sharpe", value: m.sharpe.toFixed(2) },
+        ];
+      } else {
+        objectiveSummaryMetrics = [
+          { label: "Ending value", value: fmtUSD(m.endValue) }, { label: "TWRR CAGR", value: fmtSigned(m.cagr) },
+          { label: "Volatility", value: fmtPct(m.vol) }, { label: "Sharpe", value: m.sharpe.toFixed(2) },
+          { label: "Max drawdown", value: fmtPct(m.maxDD), direction: "down" }, { label: "Excess vs benchmark", value: fmtSigned(m.excessReturn), direction: m.excessReturn >= 0 ? "up" : "down" },
+        ];
+      }
+      alwaysOnCards = [
+        { title: "Benchmark Risk", body: "Beta " + m.beta.toFixed(2) + ", alpha " + fmtSigned(m.alpha) + ", tracking error " + fmtPct(m.trackingError) + ".", onClick: () => this.setTab("metrics") },
+        { title: "Drawdown Stress", body: "Worst drawdown " + fmtPct(m.maxDD) + ", benchmark " + fmtPct(m.benchMaxDD) + ", Ulcer Index " + m.ulcerIndex.toFixed(2) + ".", onClick: () => this.setTab("drawdown") },
+        { title: "Diversification Check", body: "Correlation matrix and asset/benchmark relationships are available in Metrics.", onClick: () => this.setTab("metrics") },
+        { title: "CQF Report", body: "Report includes objective, assumptions, methodology, formulas, results, and limitations.", onClick: () => this.setTab("report") },
+      ];
+
+      portfolioPath = buildPath(r.portfolioValues, 760, 280);
+      benchmarkPath = buildPath(r.benchmarkValues, 760, 280);
+      netInvestedPath = buildPath(r.netInvested, 760, 280);
+      ddAreaPath = buildAreaPath(r.ddSeries, 760, 220);
+      benchDdPath = buildPath(r.benchDdSeries, 760, 220);
+      worstDrawdownLabel = fmtPct(m.maxDD); benchWorstDrawdownLabel = fmtPct(m.benchMaxDD); ulcerIndexLabel = m.ulcerIndex.toFixed(2);
+      startValueLabel = fmtUSD(r.portfolioValues[0]); endValueLabel = fmtUSD(r.portfolioValues.at(-1));
+
+      ddColumns = [{ key: "start", label: "Peak" }, { key: "trough", label: "Trough" }, { key: "recovery", label: "Recovery" }, { key: "depth", label: "Depth", numeric: true }, { key: "duration", label: "Duration (mo)", numeric: true }];
+      ddRows = r.drawdownPeriods.map((p) => ({ start: p.start, trough: p.trough, recovery: p.recovery || "Ongoing", depth: fmtPct(p.depthPct), duration: p.durationMonths }));
+
+      annualColumns = [{ key: "year", label: "Year" }, { key: "portfolio", label: "Portfolio", numeric: true }, { key: "benchmark", label: "Benchmark", numeric: true }, { key: "diff", label: "Difference", numeric: true }];
+      annualRows = r.annualReturns.map((a) => ({ year: a.year, portfolio: fmtSigned(a.portfolio), benchmark: fmtSigned(a.benchmark), diff: fmtSigned(a.diff) }));
+
+      monthlyGridRows = r.monthlyGrid.map((row) => ({
+        year: row.year,
+        cells: row.months.map((v, i) => {
+          const t = Math.max(0.12, Math.min(0.85, Math.abs(v) / 6));
+          const bg = v >= 0 ? "rgb(27 138 90 / " + t + ")" : "rgb(176 0 32 / " + t + ")";
+          return { title: MONTH_HEADERS[i] + " " + row.year + ": " + fmtSigned(v), label: "", style: "width:22px;height:20px;border-radius:2px;background:" + bg };
+        }),
+      }));
+      bestMonthLabel = fmtSigned(r.bestMonth.r); bestMonthDate = r.bestMonth.d;
+      worstMonthLabel = fmtSigned(r.worstMonth.r); worstMonthDate = r.worstMonth.d;
+      bestYearLabel = r.bestYear ? (r.bestYear.year + " · " + fmtSigned(r.bestYear.portfolio)) : "—";
+      worstYearLabel = r.worstYear ? (r.worstYear.year + " · " + fmtSigned(r.worstYear.portfolio)) : "—";
+
+      const maxCount = Math.max.apply(null, r.histogram.map((b) => b.count)) || 1;
+      histogramBars = r.histogram.map((b) => ({
+        title: b.from.toFixed(1) + "% to " + b.to.toFixed(1) + "%: " + b.count + " month(s)",
+        style: "flex:1;height:" + Math.max(4, (b.count / maxCount) * 80) + "px;background:" + (b.from >= 0 ? "var(--qs-secondary)" : "var(--qs-error)") + ";border-radius:2px 2px 0 0",
+      }));
+      skewnessLabel = r.skewness.toFixed(2); kurtosisLabel = r.kurtosis.toFixed(2);
+
+      corrColumns = [{ key: "label", label: "" }].concat(r.correlationLabels.map((l) => ({ key: l, label: l, numeric: true })));
+      corrRows = r.correlationLabels.map((rowLabel, i) => {
+        const row = { label: rowLabel };
+        r.correlationLabels.forEach((colLabel, j) => { row[colLabel] = r.correlationMatrix[i][j].toFixed(2); });
+        return row;
+      });
+
+      const rollLatest = (arr) => arr.length ? arr[arr.length - 1] : null;
+      metricGroups = [
+        { title: "Performance", items: [
+          { label: "CAGR (TWRR)", value: fmtSigned(m.cagr) + "%", onFormula: () => this.openFormula("cagr") },
+          { label: "Total return (TWRR)", value: fmtSigned(m.totalReturnTWRR) + "%", onFormula: () => this.openFormula("twrr") },
+          { label: "Best year", value: bestYearLabel, onFormula: () => this.openFormula("portfolioReturn") },
+          { label: "Worst year", value: worstYearLabel, onFormula: () => this.openFormula("portfolioReturn") },
+        ] },
+        { title: "Risk", items: [
+          { label: "Annualized volatility", value: fmtPct(m.vol), onFormula: () => this.openFormula("volatility") },
+          { label: "Maximum drawdown", value: fmtPct(m.maxDD), onFormula: () => this.openFormula("maxDrawdown") },
+          { label: "Ulcer Index", value: m.ulcerIndex.toFixed(2), onFormula: () => this.openFormula("ulcerIndex") },
+        ] },
+        { title: "Risk-adjusted", items: [
+          { label: "Sharpe ratio", value: m.sharpe.toFixed(2), onFormula: () => this.openFormula("sharpe") },
+          { label: "Sortino ratio", value: m.sortino.toFixed(2), onFormula: () => this.openFormula("sortino") },
+          { label: "Calmar ratio", value: m.calmar.toFixed(2), onFormula: () => this.openFormula("calmar") },
+          { label: "Information ratio", value: m.informationRatio.toFixed(2), onFormula: () => this.openFormula("informationRatio") },
+        ] },
+        { title: "Benchmark-relative", items: [
+          { label: "Beta", value: m.beta.toFixed(2), onFormula: () => this.openFormula("beta") },
+          { label: "Alpha", value: fmtSigned(m.alpha) + "%", onFormula: () => this.openFormula("alpha") },
+          { label: "Tracking error", value: fmtPct(m.trackingError), onFormula: () => this.openFormula("trackingError") },
+          { label: "Correlation", value: m.correlation.toFixed(2), onFormula: () => this.openFormula("correlation") },
+        ] },
+        { title: "Rolling (12-month, latest)", items: [
+          { label: "Rolling return", value: fmtSigned(rollLatest(r.rollingReturn)), onFormula: () => this.openFormula("portfolioReturn") },
+          { label: "Rolling volatility", value: fmtPct(rollLatest(r.rollingVol)), onFormula: () => this.openFormula("volatility") },
+          { label: "Rolling Sharpe", value: rollLatest(r.rollingSharpe) != null ? rollLatest(r.rollingSharpe).toFixed(2) : "n/a", onFormula: () => this.openFormula("sharpe") },
+          { label: "Rolling beta", value: rollLatest(r.rollingBeta) != null ? rollLatest(r.rollingBeta).toFixed(2) : "n/a", onFormula: () => this.openFormula("beta") },
+        ] },
+      ];
+
+      cashflowMetrics = [
+        { label: "Total contributions", value: fmtUSD(m.totalContrib) },
+        { label: "Total withdrawals", value: fmtUSD(m.totalWithdraw) },
+        { label: "Net invested capital", value: fmtUSD(m.netInvestedFinal) },
+        { label: "Net profit", value: fmtUSD(m.netProfit) },
+        { label: "Ending value / invested", value: m.endOverInvested != null ? m.endOverInvested.toFixed(2) + "x" : "n/a" },
+        { label: "MWRR / IRR", value: m.mwrr != null ? fmtSigned(m.mwrr) + "%" : "n/a" },
+      ];
+      cfColumns = [{ key: "date", label: "Date" }, { key: "type", label: "Type" }, { key: "amount", label: "Amount", numeric: true }, { key: "running", label: "Net invested", numeric: true }];
+      cfRows = r.cashflowEvents.slice(0, 30).map((e) => ({ date: e.date, type: e.type, amount: fmtUSD(e.amount), running: fmtUSD(e.runningInvested) }));
+      cfCutoffNote = r.cashflowEvents.length > 30 ? ("Showing first 30 of " + r.cashflowEvents.length + " events") : "";
+
+      rebalanceMetrics = [
+        { label: "Rebalance count", value: String(m.rebalanceCount) },
+        { label: "Avg turnover", value: fmtPct(m.avgTurnover) },
+        { label: "Rebalances / year", value: (m.rebalanceCount / m.years).toFixed(1) },
+        { label: "Est. cost drag", value: fmtPct(r.rebalanceEvents.reduce((a, e) => a + e.costDrag, 0)) },
+      ];
+      rebalColumns = [{ key: "date", label: "Date" }, { key: "turnover", label: "Turnover", numeric: true }, { key: "cost", label: "Cost drag", numeric: true }, { key: "weights", label: "Before → after" }];
+      rebalRows = r.rebalanceEvents.map((e) => ({
+        date: e.date, turnover: fmtPct(e.turnoverPct), cost: fmtPct(e.costDrag, 2),
+        weights: e.before.map((b, i) => b.ticker + " " + b.weight.toFixed(0) + "%→" + e.after[i].weight.toFixed(0) + "%").join(", "),
+      }));
+      allocationRows = r.targetWeights.map((t, i) => {
+        const cur = r.finalWeights[i].weight;
+        return {
+          ticker: t.ticker, label: "Target " + t.weight.toFixed(0) + "% · Current " + cur.toFixed(1) + "%",
+          targetStyle: "position:absolute;top:-3px;left:" + Math.min(98, t.weight) + "%;width:2px;height:14px;background:var(--text-body)",
+          currentStyle: "height:8px;border-radius:99px;width:" + Math.min(100, cur) + "%;background:" + PALETTE[i % PALETTE.length],
+        };
+      });
+    }
+
+    const activeFormula = (this.formulas && s.activeFormulaKey) ? this.formulas[s.activeFormulaKey] : null;
+    const formulaList = this.formulas ? Object.keys(this.formulas).map((k) => ({ key: k, name: this.formulas[k].name, onClick: () => this.openFormula(k) })) : [];
+    const objectiveOptions = Object.keys(OBJECTIVES).map((key) => ({
+      title: OBJECTIVES[key].title,
+      subtitle: OBJECTIVES[key].subtitle,
+      active: s.objective === key,
+      onClick: () => this.applyObjective(key),
+    }));
+
+    return {
+      objectiveOptions,
+      objectiveTitle: objectiveDef.title,
+      objectiveDescription: objectiveDef.description,
+      requiredInputSummary: objectiveDef.required,
+      optionalInputSummary: objectiveDef.optional,
+      presetNotice: s.presetNotice,
+      cashflowRequirementLabel: (s.objective === "monthly_dca" || s.objective === "monthly_withdrawal") ? "Required for this objective" : "Optional",
+      rebalanceRequirementLabel: s.objective === "rebalancing_impact" ? "Required for this objective" : "Auto-filled default",
+      portfolio: portfolioRows, weightStatusTone: weightOk ? "success" : "error", weightStatusText: "Total " + sum.toFixed(0) + "%",
+      allocSegments, showNormalize: !weightOk, validationErrors: errors,
+      setupProgressPct, setupProgressLabel,
+      badge1Style: badge(portfolioOk), badge2Style: badge(true), badge3Style: badge(settingsOk), badge4Style: badge(cashflowOk), badge5Style: badge(true), badge6Style: badge(true), badge7Style: badge(portfolioOk && settingsOk),
+      addAsset: this.addAsset, normalizeWeights: this.normalizeWeights,
+      dataOpen: s.dataOpen, dataChevron: s.dataOpen ? "–" : "+", toggleData: this.toggleData,
+      coverageText: s.startDate + " → " + s.endDate, riskFreeRate: s.riskFreeRate, onRiskFreeRate: (e) => this.setState({ riskFreeRate: e.target.value }),
+      settingsOpen: s.settingsOpen, settingsChevron: s.settingsOpen ? "–" : "+", toggleSettings: this.toggleSettings,
+      startDate: s.startDate, endDate: s.endDate, initialCapital: s.initialCapital, benchmark: s.benchmark, useMaxOverlap: s.useMaxOverlap,
+      onStartDate: (e) => this.setState({ startDate: e.target.value }), onEndDate: (e) => this.setState({ endDate: e.target.value }),
+      onInitialCapital: (e) => this.setState({ initialCapital: e.target.value }), onBenchmark: (e) => this.setState({ benchmark: e.target.value }),
+      onUseMaxOverlap: (e) => this.setState({ useMaxOverlap: e.target.checked }),
+      cashflowOpen: s.cashflowOpen, cashflowChevron: s.cashflowOpen ? "–" : "+", toggleCashflow: this.toggleCashflow,
+      cfEnabled: cf.enabled, onCfEnabled: (e) => this.setState({ cashflow: { ...cf, enabled: e.target.checked } }),
+      cfType: cf.type, onCfType: (e) => this.setState({ cashflow: { ...cf, type: e.target.value } }),
+      cfTypeOptions: [{ value: "contribution", label: "Contribution" }, { value: "withdrawal", label: "Withdrawal" }],
+      cfAmount: cf.amount, onCfAmount: (e) => this.setState({ cashflow: { ...cf, amount: e.target.value } }),
+      cfFrequency: cf.frequency, onCfFrequency: (e) => this.setState({ cashflow: { ...cf, frequency: e.target.value } }),
+      cfFreqOptions: [{ value: "monthly", label: "Monthly" }, { value: "quarterly", label: "Quarterly" }, { value: "annual", label: "Annual" }],
+      cfStart: cf.start, onCfStart: (e) => this.setState({ cashflow: { ...cf, start: e.target.value } }),
+      cfEnd: cf.end, onCfEnd: (e) => this.setState({ cashflow: { ...cf, end: e.target.value } }),
+      cfTiming: cf.timing, onCfTiming: (e) => this.setState({ cashflow: { ...cf, timing: e.target.value } }),
+      cfTimingOptions: [{ value: "beginning", label: "Beginning of period" }, { value: "end", label: "End of period" }],
+      rebalanceOpen: s.rebalanceOpen, rebalanceChevron: s.rebalanceOpen ? "–" : "+", toggleRebalance: this.toggleRebalance,
+      rebalanceMode: s.rebalanceMode, onRebalanceMode: (e) => this.setState({ rebalanceMode: e.target.value }),
+      rebalanceOptions: [{ value: "none", label: "None" }, { value: "monthly", label: "Monthly" }, { value: "quarterly", label: "Quarterly" }, { value: "annual", label: "Annual" }],
+      dividendsOpen: s.dividendsOpen, dividendsChevron: s.dividendsOpen ? "–" : "+", toggleDividends: this.toggleDividends,
+      useAdjClose: s.useAdjClose, onUseAdjClose: (e) => { const v = e.target.checked; this.setState({ useAdjClose: v, reinvestDividends: v ? this.state.reinvestDividends : false }); },
+      reinvestDividends: s.reinvestDividends, reinvestDisabled: !s.useAdjClose, onReinvestDividends: (e) => this.setState({ reinvestDividends: e.target.checked }),
+      annualDrag: s.annualDrag, onAnnualDrag: (e) => this.setState({ annualDrag: e.target.value }),
+      transactionCost: s.transactionCost, onTransactionCost: (e) => this.setState({ transactionCost: e.target.value }),
+      slippageBps: s.slippageBps, onSlippageBps: (e) => this.setState({ slippageBps: e.target.value }),
+      assumptionSummary, warnings,
+      runDisabled: !canRunFinal || isRunning || !this.engine, runButtonLabel: isRunning ? "Running…" : "Run backtest",
+      isRunning, progressSteps, runBacktest: this.runBacktest,
+      tabs, notReady: !hasResults, hasResults,
+      showSummary: hasResults && s.activeTab === "summary", objectiveSummaryTitle, objectiveSummaryText, objectiveSummaryMetrics, alwaysOnCards,
+      showOverview: hasResults && s.activeTab === "overview", showGrowth: hasResults && s.activeTab === "growth",
+      showDrawdown: hasResults && s.activeTab === "drawdown", showReturns: hasResults && s.activeTab === "returns",
+      showMetrics: hasResults && s.activeTab === "metrics", showCashflows: hasResults && s.activeTab === "cashflows",
+      showRebalancing: hasResults && s.activeTab === "rebalancing", showReport: hasResults && s.activeTab === "report",
+      overviewMetrics, portfolioPath, benchmarkPath, netInvestedPath, ddAreaPath, benchDdPath, worstDrawdownLabel, benchWorstDrawdownLabel, ulcerIndexLabel,
+      startValueLabel, endValueLabel, ddColumns, ddRows,
+      annualColumns, annualRows, monthlyGridRows, monthHeaders: MONTH_HEADERS, bestMonthLabel, worstMonthLabel, bestMonthDate, worstMonthDate, bestYearLabel, worstYearLabel,
+      histogramBars, skewnessLabel, kurtosisLabel,
+      metricGroups, corrColumns, corrRows, cashflowMetrics, cfColumns, cfRows, cfCutoffNote, cfDisabledMsg: !cf.enabled,
+      rebalanceMetrics, rebalColumns, rebalRows, rebalOn: s.rebalanceMode !== "none", rebalOffMsg: s.rebalanceMode === "none", allocationRows,
+      openTwrrFormula: this.openTwrrFormula, openMwrrFormula: this.openMwrrFormula,
+      exportFiles: hasResults ? [
+        { name: "report.md", onClick: this.exportReportMd }, { name: "run_config.json", onClick: this.exportRunConfig },
+        { name: "metrics.json", onClick: this.exportMetrics }, { name: "holdings_normalized.csv", onClick: this.exportHoldings },
+        { name: "prices_aligned.csv", onClick: this.exportPricesAligned }, { name: "returns_matrix.csv", onClick: this.exportReturnsMatrix },
+        { name: "portfolio_values.csv", onClick: this.exportPortfolioValues }, { name: "cashflow_events.csv", onClick: this.exportCashflowEvents },
+        { name: "rebalance_events.csv", onClick: this.exportRebalanceEvents },
+      ] : [],
+      reportSections: this.buildReportSections(),
+      goToReport: this.goToReport,
+      drawerStyle: "flex:none;width:" + (s.rightDrawerOpen ? "340px" : "0px") + ";overflow:hidden;border-left:1px solid var(--qs-border);background:#fff;transition:width .2s ease",
+      toggleDrawer: this.toggleDrawer,
+      isAssumptionsView: s.drawerView === "assumptions", isFormulaView: s.drawerView === "formula",
+      assumptionRows: [
+        { label: "Date range", value: s.startDate + " → " + s.endDate }, { label: "Initial capital", value: fmtUSD(s.initialCapital) },
+        { label: "Benchmark", value: s.benchmark }, { label: "Risk-free rate", value: s.riskFreeRate + "%/yr" }, { label: "Rebalancing", value: s.rebalanceMode },
+        { label: "Cashflow", value: cf.enabled ? (cf.type + " " + fmtUSD(cf.amount) + "/" + cf.frequency) : "None" },
+        { label: "Dividends", value: s.reinvestDividends ? "Reinvested" : "Not reinvested" },
+        { label: "Price basis", value: s.useAdjClose ? "Adjusted close" : "Raw close" },
+        { label: "Data source", value: "Illustrative seeded sample" },
+      ],
+      formulaList, backToAssumptions: this.backToAssumptions,
+      activeFormulaName: activeFormula ? activeFormula.name : "", activeFormulaFormula: activeFormula ? activeFormula.formula : "",
+      activeFormulaVariables: activeFormula ? activeFormula.variables : "", activeFormulaInterpretation: activeFormula ? activeFormula.interpretation : "",
+      activeFormulaNote: activeFormula ? activeFormula.note : "", activeFormulaTrap: activeFormula ? activeFormula.trap : "",
+      importDialogOpen: s.importDialogOpen, closeImportDialog: this.closeImportDialog, openImportDialog: this.openImportDialog,
+      importDialogActions: React.createElement(window.QuantCornerQuantSerasDesignSystem_50ce1a.Button, { onClick: this.closeImportDialog, size: "sm" }, "Got it"),
+    };
+  }
+}
+
+</script>
+</body>
+</html>
