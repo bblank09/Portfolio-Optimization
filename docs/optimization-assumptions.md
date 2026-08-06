@@ -64,17 +64,38 @@ efficient frontier chart, optimal weights table, expected return/volatility/Shar
 per-asset risk-contribution breakdown, and a rolling out-of-sample performance chart —
 these should shape the future mock-UI "Results" tab design.
 
-## Open gaps (not yet resolved — revisit before implementation)
+## Gaps — closure status (updated after a follow-up research pass)
 
-- Black-Litterman input mechanics were corroborated via riskfolio-lib's own model
-  documentation, not verified directly against portfoliovisualizer.com/black-litterman-model
-  (that page returned HTTP 403 to automated fetch). Standard and well-established
-  enough to proceed, but worth a manual look before implementing the BL view-input UI.
-- `AssetManagementToolkit`'s code/tests have not been read in detail.
-- Fund-universe size/history depth (`data/sec/mvp_fund_universe.csv`) has not yet been
-  checked for whether it's large/long enough for stable covariance estimation — small-N
-  portfolios are exactly where MVO's estimation-error problem is worst. Check before
-  committing to a default objective in the actual implementation.
+Four gaps were originally flagged; all four are now closed (full findings in the
+research-synthesizer output — see the file linked at the bottom):
+
+1. **Academic sweep** — was skipped in the first pass. Closed via OpenAlex (Semantic
+   Scholar rate-limited/no API key): confirmed Ledoit & Wolf (2003) shrinkage
+   covariance as the standard academic fix for estimation error, and upgraded Michaud
+   & Michaud's resampling paper from an SSRN-abstract citation to a verified
+   peer-reviewed reference (85 citations).
+2. **Black-Litterman mechanics** — verified against Wikipedia (High confidence on the
+   qualitative mechanism: implied equilibrium returns + investor views + confidence →
+   posterior return estimate → standard mean-variance optimization). The exact tau/
+   Omega formulas are still not sourced from a primary paper — before coding the BL
+   view-input UI, pull He & Litterman (1999), "The Intuition Behind Black-Litterman
+   Model Portfolios."
+3. **riskfolio-lib vs. PyPortfolioOpt** — now compared, not assumed: riskfolio-lib has
+   26 risk measures vs. PyPortfolioOpt's variance-centric scope, plus native
+   constraint tooling and HRP/HERC that PyPortfolioOpt lacks. Confirms the choice on a
+   comparative basis.
+4. **Fund universe size** — checked directly:
+   `data/sec/mvp_fund_universe.csv` has ~2,000 funds, longest history ~135-139 months
+   (~11.3 years). This *reverses* the original concern — the universe isn't too thin
+   for covariance estimation, it's too *wide* to optimize over directly. **Design
+   implication for Phase 4/5: the UI needs a fund shortlist/pre-selection step (or the
+   backend needs a pre-clustering step) before running MVO/BL — optimizing across all
+   2,000 funds simultaneously is neither standard practice nor computationally sane.**
+   This is a new, concrete requirement this closure pass surfaced.
+
+Remaining, genuinely deferred (low urgency): `AssetManagementToolkit`'s code has not
+been read line-by-line — it's a reference only, not a dependency, so this only matters
+if/when its patterns are actually borrowed during Phase 5 implementation.
 
 ## Sources
 
