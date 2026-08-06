@@ -93,9 +93,28 @@ research-synthesizer output — see the file linked at the bottom):
    2,000 funds simultaneously is neither standard practice nor computationally sane.**
    This is a new, concrete requirement this closure pass surfaced.
 
-Remaining, genuinely deferred (low urgency): `AssetManagementToolkit`'s code has not
-been read line-by-line — it's a reference only, not a dependency, so this only matters
-if/when its patterns are actually borrowed during Phase 5 implementation.
+`AssetManagementToolkit`'s code has now been read line-by-line (cloned + its own test
+suite run: 314 passed, 0 failed). Findings:
+
+- **No LICENSE file, no license statement anywhere in the repo.** Under default
+  copyright law that means all-rights-reserved — reading and learning from it is fine,
+  but **do not copy its source into this project without asking the author
+  (github.com/nutdnuy) for explicit permission first.**
+- Its Black-Litterman, Markowitz (min-vol/max-Sharpe/GMV/frontier), HRP/HERC, and
+  risk-budgeting (ERC/target-risk) implementations are all correct, well-validated,
+  and match the mechanisms verified against Wikipedia/riskfolio-lib docs earlier —
+  useful as a **correctness oracle** to cross-check riskfolio-lib's numbers in Phase 5
+  tests (run it as an installed test-time dependency, not by copying its source).
+- Its `shrink_covariance` is a fixed-intensity blend toward constant-correlation, **not**
+  Ledoit-Wolf's optimal-shrinkage estimator — don't treat it as "the" shrinkage
+  implementation. Use riskfolio-lib's own covariance estimators for the actual engine.
+- Its `walk_forward` validator solves a different problem (simulation-model
+  calibration, not rolling portfolio-weight re-optimization) — only the
+  expanding/rolling fold-splitting *pattern* is reusable, reimplemented from scratch,
+  not the code itself.
+
+Full line-by-line findings (per-module, with confidence levels): see the
+research-synthesizer output from this session.
 
 ## Sources
 
