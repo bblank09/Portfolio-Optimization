@@ -77,19 +77,40 @@ tools this session** (browser-fetched, real form rendered — not summarized):
 
 ### 2b. Black-Litterman view panel (shown only if Objective = Black-Litterman)
 
-**Structural note from the live fetch:** PV does not inline its BL tool into the main
-optimize form — it's a **separate 3-step wizard** ("Step 1/3: Benchmark Portfolio" →
-presumably views → results, confirmed by direct fetch this session; steps 2-3 not
-explored further, out of scope). Step 1 fields, confirmed live: **Portfolio Type**
-(Asset Classes/Tickers), **Covariance Period** (Full History / Last Five Years),
-**Expected Return** (%, for the benchmark), **Portfolio Assets** (the market-weight
-allocation table). This validates the "Market weights" field below as a real,
-necessary first input — keep BL as an in-line panel within this project's single
-Assumptions step (simpler than a 3-step sub-wizard) but keep PV's ordering: benchmark
-weights first, then views, then confidence.
+**Structural note — now fully walked through live, all 3 steps.** PV runs its BL tool
+as a separate 3-step wizard, actually driven end-to-end this session (filled a real
+2-asset benchmark, a real view, submitted through to results):
 
-Sourced from the Idzorek (2004) primary paper (fetched, saved locally this session)
-plus `AssetManagementToolkit`'s `black_litterman.py`:
+- **Step 1/3 — Benchmark Portfolio**: Portfolio Type (Asset Classes/Tickers),
+  Covariance Period (Full History / Last Five Years), Expected Return (%, for the
+  benchmark as a whole), Portfolio Assets (market-weight allocation table).
+- **Step 2/3 — Equilibrium Returns and Investor Opinions**: displays the **computed
+  equilibrium return per asset** (Π, read-only, e.g. "US Stock Market 9.21%" derived
+  from the 60/40 benchmark weights and 7% expected return) alongside the benchmark
+  weights, THEN the view builder. **Per view row, confirmed live:** Asset #1 dropdown,
+  View type dropdown (**"will return"** = absolute view / **"will outperform (->) by"**
+  = relative view, revealing an Asset #2 dropdown only for the relative case), a
+  numeric **Opinion adjusted performance** field (%, this is `Q`), and — the one real
+  correction to make — **Opinion confidence level is a discrete dropdown with exactly
+  4 options: 100% / 75% / 50% / 25%**, not a free 0-100% continuous slider as this
+  spec's prior revision assumed from reading Idzorek's paper alone. "Add View" adds
+  more rows dynamically (tested up to 3 in the live form).
+- **Step 3/3 — Optimization Results**: an **Optimization Type toggle (Constrained /
+  Unconstrained)**, then a table of **Adjusted Return** (posterior, per asset) next to
+  the final **Allocation** — confirmed live with real numbers: a 12%-absolute-view on
+  US Stock Market at 75% confidence moved the equilibrium 60/40 benchmark to a
+  posterior 81.35% / 18.65% allocation, expected return 9.91%, std dev 13.04%. A plain
+  sentence states "Adjusted returns are equilibrium returns adjusted for the given
+  views," matching this project's own "every number traces to a stated formula"
+  principle.
+
+This validates keeping BL as an in-line panel within this project's single Assumptions
+step (simpler than a 3-step sub-wizard) while adopting PV's exact ordering and the
+**discrete 4-level confidence dropdown** (simpler and more usable than a raw
+percentage input, still implements Idzorek's method) instead of a continuous slider.
+
+Sourced from the Idzorek (2004) primary paper (fetched, saved locally this session),
+`AssetManagementToolkit`'s `black_litterman.py`, and the live PV walkthrough above:
 
 | Field | Maps to | Notes |
 |---|---|---|
@@ -97,7 +118,7 @@ plus `AssetManagementToolkit`'s `black_litterman.py`:
 | Risk aversion (δ) | `risk_aversion` | default 2.5 |
 | Tau (τ) | `tau` | default **0.05**. Idzorek's paper (p.14, read this session) surveys practitioner values: Lee typically uses 0.01–0.05; Satchell & Scowcroft (2000) use 1; Blamont & Firoozye (2003) use 1/(number of observations). Expose as an advanced override, default 0.05 (matches riskfolio-lib's own default) |
 | View builder | pick matrix `P`, view vector `Q` | "Fund A will return [X]% more than Fund B" (relative, row sums to 0) or "Fund A will return [X]%" (absolute, single 1). For multi-asset relative views, Idzorek recommends **market-cap(≈AUM)-weighted** row entries over naive equal-weighting — equal-weighting causes disproportionate tracking error on smaller funds (paper's own worked example, p.12) |
-| **View confidence** | Ω, via **Idzorek's confidence method** | The paper's actual contribution: an intuitive **0–100% confidence slider per view**, back-solved into the Ω diagonal — this is the field to build, not a raw-variance input. Matches PyPortfolioOpt's `omega="idzorek"` mode (confirmed this session). Default Ω without slider interaction: Ω = τ·PΣPᵀ (matches `AssetManagementToolkit` and riskfolio-lib) |
+| **View confidence** | Ω, via **Idzorek's confidence method** | **Corrected below (Step 2/3 walkthrough): PV uses a discrete 100%/75%/50%/25% dropdown, not a continuous slider.** Still Idzorek's back-solved-into-Ω approach, just quantized to 4 levels — simpler UX, adopt this instead of a slider. Matches PyPortfolioOpt's `omega="idzorek"` mode (confirmed this session). Default Ω without any view touched: Ω = τ·PΣPᵀ (matches `AssetManagementToolkit` and riskfolio-lib) |
 
 ### 2c. Constraints
 
@@ -145,9 +166,6 @@ equal-weight comparison at CAGR 7.75%, Sharpe 0.54):
 
 - Actual computation/wiring (Phase 5).
 - The exact shortlist cap in Step 1 (flagged as open).
-- PV's BL tool steps 2-3 (views input, results) were not explored live this session —
-  only Step 1/3 (Benchmark Portfolio) was fetched; confirm the views/confidence UI
-  pattern against the live tool before finalizing the BL sub-panel's exact layout.
 - "Use Historical Returns: No" (forward-looking capital-market assumptions) — field
   confirmed to exist live, behavior not explored; later-tier addition.
 - PV's other 2-of-3 Optimization Goal categories (CVaR-subject-to, Tracking
