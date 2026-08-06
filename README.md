@@ -47,7 +47,7 @@ This project answers a different question than its parent backtester: *given a u
 
 It is a full-stack application — a FastAPI optimization engine (built on [riskfolio-lib](https://riskfolio-lib.readthedocs.io/en/latest/)) over the same cached SEC Thailand Open Data NAV series as the parent project, and a React/TypeScript dashboard for building a fund universe, choosing an optimization objective, and inspecting results (efficient frontier, optimal weights, risk contribution breakdown, and rolling out-of-sample performance).
 
-**Status:** assumptions and methodology decided (see [`docs/optimization-assumptions.md`](docs/optimization-assumptions.md) for the full decision record and sources); the optimization engine, backend wiring, and UI are not yet implemented — see Roadmap.
+**Status:** assumptions and methodology decided (see [`docs/optimization-assumptions.md`](docs/optimization-assumptions.md) for the full decision record and sources), and the Assumptions/Results UI fields are fully spec'd (see [`docs/mock-ui-spec.md`](docs/mock-ui-spec.md)); the optimization engine, backend wiring, and actual UI are not yet implemented — see Roadmap.
 
 ## 2. Motivation & Research Question
 
