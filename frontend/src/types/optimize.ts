@@ -99,16 +99,30 @@ export interface OptimizeRequest {
   goal: ObjectiveGoal;
   riskMeasure: RiskMeasure;
   targetAnnualVolatilityPct: number | null; // only used with max_return_target_vol
+  // Only used with min_volatility -- pins that objective to a target return
+  // instead of collapsing to the same unconstrained minimum as min_variance.
+  targetAnnualReturnPct: number | null;
   robustOptimization: boolean; // PV's literal Monte Carlo resampling toggle -- the "robustness indicator"
   useHistoricalReturns: boolean;
   useHistoricalVolatility: boolean;
   useHistoricalCorrelations: boolean;
-  // Only read when useHistoricalReturns is false -- confirmed live: PV
-  // reveals an "Expected Return" column per asset in that case.
+  // Only read when useHistoricalReturns is false -- reveals an "Expected
+  // Return" column per asset in that case.
   expectedReturnOverrides: Record<string, number>;
+  // Only read when useHistoricalVolatility is false -- reveals an
+  // "Expected Volatility" column per asset.
+  volatilityOverrides: Record<string, number>;
+  // Only read when useHistoricalCorrelations is false -- reveals an
+  // editable pairwise correlation matrix. Keyed "projIdA|projIdB" with
+  // projIdA < projIdB (sorted) so lookups don't need to try both orders.
+  correlationOverrides: Record<string, number>;
   returnMethod: ReturnEstimationMethod;
   covarianceMethod: CovarianceMethod;
   blackLitterman: BlackLittermanInputs | null; // present only when goal === "black_litterman"
+  // A single fixed comparator (distinct from constraints.compareAgainst,
+  // which is a computed weighting scheme) -- e.g. tracking a specific fund.
+  // null = no benchmark set.
+  benchmarkProjId: string | null;
   constraints: OptimizeConstraints;
 }
 
@@ -181,5 +195,7 @@ export interface OptimizeResult {
   // Performance tab always showed generic Std Dev/Max Drawdown regardless
   // of which risk measure was selected.
   selectedRiskMeasure: SelectedRiskMeasureResult;
+  // Set only when request.benchmarkProjId is a fund in the shortlist.
+  benchmarkComparison: { projId: string; displayName: string; trackingErrorPct: number; excessReturnPct: number } | null;
   generatedAt: string; // ISO timestamp, for the Report tab's run metadata line
 }

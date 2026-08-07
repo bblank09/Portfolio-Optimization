@@ -25,6 +25,11 @@ interface Props {
   onChange: (request: OptimizeRequest) => void;
   onBack: () => void;
   onRun: () => void;
+  // Longest gap-free window for the selected funds, computed server-side
+  // (GET /api/funds/testable-range) -- same landmine fix as the sibling
+  // backtester's AssumptionsStep: a client-side nav_start/nav_end
+  // intersection would miss gaps inside the range.
+  testableRange: { start: string | null; end: string | null };
 }
 
 // docs/mock-ui-spec.md 2a: scoped down from PV's full 15-goal list to what
@@ -57,10 +62,11 @@ function nextViewKey() {
   return `view-${viewSeq}`;
 }
 
-export function OptimizeAssumptionsStep({ active, request, funds, error, loading, onChange, onBack, onRun }: Props) {
+export function OptimizeAssumptionsStep({ active, request, funds, error, loading, onChange, onBack, onRun, testableRange }: Props) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const isBlackLitterman = request.goal === "black_litterman";
   const isTargetVol = request.goal === "max_return_target_vol";
+  const isMinVolatility = request.goal === "min_volatility";
   const selectedFunds = request.funds;
   const canRun = selectedFunds.length >= 2 && !loading;
 
@@ -78,6 +84,19 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
 
   function setExpectedReturnOverride(projId: string, value: number) {
     onChange({ ...request, expectedReturnOverrides: { ...request.expectedReturnOverrides, [projId]: value } });
+  }
+
+  function setVolatilityOverride(projId: string, value: number) {
+    onChange({ ...request, volatilityOverrides: { ...request.volatilityOverrides, [projId]: value } });
+  }
+
+  function correlationKey(projId1: string, projId2: string): string {
+    return [projId1, projId2].sort().join("|");
+  }
+
+  function setCorrelationOverride(projId1: string, projId2: string, value: number) {
+    const clamped = Math.max(-1, Math.min(1, value));
+    onChange({ ...request, correlationOverrides: { ...request.correlationOverrides, [correlationKey(projId1, projId2)]: clamped } });
   }
 
   function patchAssetGroup(id: AssetGroupId, next: Partial<AssetGroup>) {
@@ -131,11 +150,27 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
         <div className="form-grid">
           <div className="form-field">
             <label htmlFor="periodStart">Start date</label>
-            <input className="field" id="periodStart" onChange={(event) => patchTimePeriod({ startDate: event.target.value })} type="date" value={request.timePeriod.startDate} />
+            <input
+              className="field"
+              id="periodStart"
+              max={testableRange.end ?? undefined}
+              min={testableRange.start ?? undefined}
+              onChange={(event) => patchTimePeriod({ startDate: event.target.value })}
+              type="date"
+              value={request.timePeriod.startDate}
+            />
           </div>
           <div className="form-field">
             <label htmlFor="periodEnd">End date</label>
-            <input className="field" id="periodEnd" onChange={(event) => patchTimePeriod({ endDate: event.target.value })} type="date" value={request.timePeriod.endDate} />
+            <input
+              className="field"
+              id="periodEnd"
+              max={testableRange.end ?? undefined}
+              min={testableRange.start ?? undefined}
+              onChange={(event) => patchTimePeriod({ endDate: event.target.value })}
+              type="date"
+              value={request.timePeriod.endDate}
+            />
           </div>
         </div>
       </div>
@@ -182,6 +217,19 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
                 step={0.1}
                 type="number"
                 value={request.targetAnnualVolatilityPct ?? 10}
+              />
+            </div>
+          ) : null}
+          {isMinVolatility ? (
+            <div className="form-field">
+              <label htmlFor="targetReturn">Targeted annual return (%)</label>
+              <input
+                className="field num"
+                id="targetReturn"
+                onChange={(event) => patch({ targetAnnualReturnPct: Number(event.target.value) })}
+                step={0.1}
+                type="number"
+                value={request.targetAnnualReturnPct ?? 6}
               />
             </div>
           ) : null}
@@ -260,27 +308,93 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
               <option value="false">No</option>
             </select>
           </div>
+          <div className="form-field">
+            <label htmlFor="benchmark">Benchmark</label>
+            <select
+              className="field"
+              id="benchmark"
+              onChange={(event) => patch({ benchmarkProjId: event.target.value || null })}
+              value={request.benchmarkProjId ?? ""}
+            >
+              <option value="">None</option>
+              {selectedFunds.map((fund) => <option key={fund.proj_id} value={fund.proj_id}>{fund.display_name}</option>)}
+            </select>
+          </div>
         </div>
 
-        {!request.useHistoricalReturns ? (
+        {!request.useHistoricalReturns || !request.useHistoricalVolatility ? (
           <>
-            <div className="section-title" style={{ marginTop: 20 }}>Expected return per fund</div>
+            <div className="section-title" style={{ marginTop: 20 }}>Expected return &amp; volatility per fund</div>
             <div className="holdings-table">
-              <div className="holdings-head" style={{ gridTemplateColumns: "1fr 120px" }}>
-                <span>Fund</span><span>Expected return (%)</span>
+              <div className="holdings-head" style={{ gridTemplateColumns: "1fr 140px 140px" }}>
+                <span>Fund</span>
+                <span>Expected return (%)</span>
+                <span>Expected volatility (%)</span>
               </div>
               {selectedFunds.map((fund) => (
-                <div className="holdings-row" key={fund.proj_id} style={{ gridTemplateColumns: "1fr 120px" }}>
+                <div className="holdings-row" key={fund.proj_id} style={{ gridTemplateColumns: "1fr 140px 140px" }}>
                   <span className="field-static">{fund.display_name}</span>
-                  <input
-                    className="field num"
-                    onChange={(event) => setExpectedReturnOverride(fund.proj_id, Number(event.target.value))}
-                    step={0.1}
-                    type="number"
-                    value={request.expectedReturnOverrides[fund.proj_id] ?? 0}
-                  />
+                  {!request.useHistoricalReturns ? (
+                    <input
+                      className="field num"
+                      onChange={(event) => setExpectedReturnOverride(fund.proj_id, Number(event.target.value))}
+                      step={0.1}
+                      type="number"
+                      value={request.expectedReturnOverrides[fund.proj_id] ?? 0}
+                    />
+                  ) : <span className="field-static">&mdash;</span>}
+                  {!request.useHistoricalVolatility ? (
+                    <input
+                      className="field num"
+                      min={0.1}
+                      onChange={(event) => setVolatilityOverride(fund.proj_id, Number(event.target.value))}
+                      step={0.1}
+                      type="number"
+                      value={request.volatilityOverrides[fund.proj_id] ?? 0}
+                    />
+                  ) : <span className="field-static">&mdash;</span>}
                 </div>
               ))}
+            </div>
+          </>
+        ) : null}
+
+        {!request.useHistoricalCorrelations && selectedFunds.length >= 2 ? (
+          <>
+            <div className="section-title" style={{ marginTop: 20 }}>Correlations</div>
+            <div className="tableScroller">
+              <table>
+                <thead>
+                  <tr>
+                    <th />
+                    {selectedFunds.map((fund) => <th key={fund.proj_id}>{fund.display_name}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedFunds.map((rowFund) => (
+                    <tr key={rowFund.proj_id}>
+                      <td><b>{rowFund.display_name}</b></td>
+                      {selectedFunds.map((colFund) => {
+                        if (rowFund.proj_id === colFund.proj_id) return <td key={colFund.proj_id}>1.00</td>;
+                        const key = correlationKey(rowFund.proj_id, colFund.proj_id);
+                        return (
+                          <td key={colFund.proj_id}>
+                            <input
+                              className="field num"
+                              max={1}
+                              min={-1}
+                              onChange={(event) => setCorrelationOverride(rowFund.proj_id, colFund.proj_id, Number(event.target.value))}
+                              step={0.05}
+                              type="number"
+                              value={request.correlationOverrides[key] ?? 0}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </>
         ) : null}

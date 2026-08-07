@@ -132,6 +132,51 @@ function EquityCurveChart({ title, series }: { title: string; series: { label: s
   );
 }
 
+// Underwater curve -- the sibling backtester ships a full dedicated
+// Drawdown tab; this project had no visual representation of drawdown at
+// all despite CDaR (Conditional Drawdown-at-Risk) being a selectable risk
+// measure. Same growth-of-100 math as EquityCurveChart, then tracks the
+// running peak and plots (value - peak) / peak as a filled area below 0.
+function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
+  if (!returnsPct.length) return null;
+  const width = 640;
+  const height = 200;
+  const padding = 40;
+  let value = 100;
+  let peak = 100;
+  const drawdowns = returnsPct.map((r) => {
+    value *= 1 + r / 100;
+    peak = Math.max(peak, value);
+    return ((value - peak) / peak) * 100;
+  });
+  const minDd = Math.min(...drawdowns, 0);
+  const n = drawdowns.length;
+  const x = (i: number) => padding + (i / Math.max(n - 1, 1)) * (width - padding * 2);
+  const yZero = padding + 4;
+  const yBottom = height - padding;
+  const y = (dd: number) => (minDd === 0 ? yZero : yZero + (dd / minDd) * (yBottom - yZero));
+  const areaPath = `M ${x(0)} ${yZero} ${drawdowns.map((dd, i) => `L ${x(i)} ${y(dd)}`).join(" ")} L ${x(n - 1)} ${yZero} Z`;
+  const linePath = drawdowns.map((dd, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(dd)}`).join(" ");
+  const maxDrawdown = minDd;
+
+  return (
+    <section className="chartPanel">
+      <h3>Drawdown</h3>
+      <div className="chartCanvas">
+        <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
+          <line className="gridLine" x1={padding} x2={width - padding} y1={yZero} y2={yZero} />
+          <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={yBottom} />
+          <path d={areaPath} fill="var(--danger)" fillOpacity={0.18} stroke="none" />
+          <path d={linePath} fill="none" stroke="var(--danger)" strokeWidth={2} />
+          <text className="axisText" x={width / 2} y={height - 8}>Period</text>
+          <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Drawdown (%)</text>
+        </svg>
+      </div>
+      <p className="field-hint">Max drawdown over this series: {pct.format(maxDrawdown)}%.</p>
+    </section>
+  );
+}
+
 function feasibilityTitle(status: OptimizeResult["feasibility"]): string {
   if (status === "non_convergence") return "The solver did not converge.";
   if (status === "infeasible_constraints") return "Constraints are mutually infeasible.";
@@ -617,7 +662,24 @@ function PerformanceTab({ result }: { result: OptimizeResult }) {
           </table>
         </div>
       </section>
+      {result.benchmarkComparison ? (
+        <section className="tablePanel">
+          <h3>Benchmark: {result.benchmarkComparison.displayName}</h3>
+          <div className="tableScroller">
+            <table>
+              <thead><tr><th>Excess return (vs. benchmark)</th><th>Tracking error</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>{result.benchmarkComparison.excessReturnPct >= 0 ? "+" : ""}{pct.format(result.benchmarkComparison.excessReturnPct)}%</td>
+                  <td>{pct.format(result.benchmarkComparison.trackingErrorPct)}%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
       <EquityCurveChart series={[{ label: "Optimized", returnsPct: result.monthlyReturnsPct, color: "#5b21d6" }]} title="Growth of 100 (optimized portfolio)" />
+      <DrawdownChart returnsPct={result.monthlyReturnsPct} />
       <ReturnHistogram monthlyReturnsPct={result.monthlyReturnsPct} />
     </div>
   );

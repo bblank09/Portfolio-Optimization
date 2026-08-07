@@ -42,8 +42,10 @@ function requestSeed(request: OptimizeRequest): string {
     request.goal,
     request.riskMeasure,
     request.targetAnnualVolatilityPct ?? "",
+    request.targetAnnualReturnPct ?? "",
     request.robustOptimization,
-    request.covarianceMethod
+    request.covarianceMethod,
+    request.benchmarkProjId ?? ""
   ].join("|");
 }
 
@@ -65,6 +67,7 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
       blackLitterman: null,
       monthlyReturnsPct: [],
       selectedRiskMeasure: { measure: request.riskMeasure, label: "", optimizedValue: 0, comparedValue: null, unit: "pct" },
+      benchmarkComparison: null,
       generatedAt: new Date().toISOString()
     };
   }
@@ -85,7 +88,14 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
     const expectedReturnPct = !request.useHistoricalReturns && request.expectedReturnOverrides[fund.proj_id] !== undefined
       ? request.expectedReturnOverrides[fund.proj_id]
       : baseReturn;
-    return { fund, expectedReturnPct, volatilityPct: baseVol };
+    // Same pattern as expectedReturnOverrides: when Use Historical
+    // Volatility is off, honor the per-fund override from Assumptions
+    // instead of the synthetic value -- previously this toggle had no
+    // follow-up UI and no effect on the mock at all.
+    const volatilityPct = !request.useHistoricalVolatility && request.volatilityOverrides[fund.proj_id] !== undefined
+      ? Math.max(request.volatilityOverrides[fund.proj_id], 0.1)
+      : baseVol;
+    return { fund, expectedReturnPct, volatilityPct };
   });
 
   const optimalWeights = applyGroupMaxClamp(allocateWeights(perAsset, request, rand), request);
@@ -93,7 +103,7 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
   const riskContributionPct = deriveRiskContribution(perAsset, optimalWeights);
   const frontier = buildFrontier(perAsset, rand);
   const assetSummary = buildAssetSummary(perAsset, request);
-  const correlations = buildCorrelations(funds, rand);
+  const correlations = buildCorrelations(funds, rand, request);
   const performanceSummary = buildPerformanceSummary(optimalWeights, compareWeights, perAsset, request, rand);
   const rolling = buildRollingFolds(request, rand);
   const blackLitterman = request.goal === "black_litterman" && request.blackLitterman
@@ -105,6 +115,7 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
     performanceSummary,
     monthlyReturnsPct
   );
+  const benchmarkComparison = buildBenchmarkComparison(perAsset, optimalWeights, request, rand);
 
   return {
     feasibility: "ok",
@@ -123,7 +134,31 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
     blackLitterman,
     monthlyReturnsPct,
     selectedRiskMeasure,
+    benchmarkComparison,
     generatedAt: new Date().toISOString()
+  };
+}
+
+// A fixed single-fund benchmark (distinct from constraints.compareAgainst's
+// computed weighting schemes) -- tracking error/excess return against one
+// named comparator, the same framing PV's own Benchmark field uses.
+function buildBenchmarkComparison(
+  perAsset: { fund: SecFund; expectedReturnPct: number; volatilityPct: number }[],
+  optimalWeights: Record<string, number>,
+  request: OptimizeRequest,
+  rand: () => number
+): OptimizeResult["benchmarkComparison"] {
+  if (!request.benchmarkProjId) return null;
+  const benchmark = perAsset.find((a) => a.fund.proj_id === request.benchmarkProjId);
+  if (!benchmark) return null;
+  const portfolioReturn = perAsset.reduce((s, a) => s + ((optimalWeights[a.fund.proj_id] ?? 0) / 100) * a.expectedReturnPct, 0);
+  const excessReturnPct = Number((portfolioReturn - benchmark.expectedReturnPct).toFixed(2));
+  const trackingErrorPct = Number((Math.abs(benchmark.volatilityPct - excessReturnPct) * (0.5 + rand() * 0.4)).toFixed(2));
+  return {
+    projId: benchmark.fund.proj_id,
+    displayName: benchmark.fund.display_name,
+    trackingErrorPct,
+    excessReturnPct
   };
 }
 
@@ -290,6 +325,14 @@ function allocateWeights(
     let score: number;
     if (request.goal === "risk_parity" || request.goal === "hrp" || request.goal === "min_variance") {
       score = 1 / Math.max(volatilityPct, 0.5);
+    } else if (request.goal === "min_volatility") {
+      // Distinct from min_variance (GMV, unconstrained): pulls toward funds
+      // whose own expected return sits closest to the user's target, while
+      // still favoring low volatility -- otherwise this objective collapsed
+      // to the exact same allocation as GMV with no way to tell them apart.
+      const target = request.targetAnnualReturnPct ?? expectedReturnPct;
+      const distance = Math.abs(expectedReturnPct - target) + 0.5;
+      score = 1 / (Math.max(volatilityPct, 0.5) * distance);
     } else {
       score = Math.max(expectedReturnPct / Math.max(volatilityPct, 0.5), 0.05);
     }
@@ -462,10 +505,22 @@ function buildAssetSummary(
   }));
 }
 
-function buildCorrelations(funds: SecFund[], rand: () => number) {
+function correlationOverrideKey(projId1: string, projId2: string): string {
+  return [projId1, projId2].sort().join("|");
+}
+
+function buildCorrelations(funds: SecFund[], rand: () => number, request: OptimizeRequest) {
   const result: { projId1: string; projId2: string; correlation: number }[] = [];
   for (let i = 0; i < funds.length; i++) {
     for (let j = i + 1; j < funds.length; j++) {
+      const overrideKey = correlationOverrideKey(funds[i].proj_id, funds[j].proj_id);
+      // Same pattern as expectedReturnOverrides/volatilityOverrides -- when
+      // Use Historical Correlations is off, honor the user's own pairwise
+      // entry from Assumptions instead of the synthetic value.
+      if (!request.useHistoricalCorrelations && request.correlationOverrides[overrideKey] !== undefined) {
+        result.push({ projId1: funds[i].proj_id, projId2: funds[j].proj_id, correlation: request.correlationOverrides[overrideKey] });
+        continue;
+      }
       const sameCategory = funds[i].policy_desc === funds[j].policy_desc;
       const base = sameCategory ? 0.55 : 0.15;
       const correlation = Math.max(-0.6, Math.min(0.95, base + (rand() - 0.5) * 0.5));

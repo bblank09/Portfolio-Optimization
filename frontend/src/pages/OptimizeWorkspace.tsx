@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { fetchFunds } from "../api/client";
+import { useEffect, useMemo, useState } from "react";
+import { fetchFunds, fetchTestableRange } from "../api/client";
 import { OptimizeAssumptionsStep } from "../components/OptimizeAssumptionsStep";
 import { OptimizeResults } from "../components/OptimizeResults";
 import { PortfolioStep } from "../components/PortfolioStep";
@@ -36,14 +36,18 @@ const initialRequest: OptimizeRequest = {
   goal: "max_sharpe",
   riskMeasure: "std_dev",
   targetAnnualVolatilityPct: 10,
+  targetAnnualReturnPct: 6,
   robustOptimization: false,
   useHistoricalReturns: true,
   useHistoricalVolatility: true,
   useHistoricalCorrelations: true,
   expectedReturnOverrides: {},
+  volatilityOverrides: {},
+  correlationOverrides: {},
   returnMethod: "historical_mean",
   covarianceMethod: "sample",
   blackLitterman: null,
+  benchmarkProjId: null,
   constraints: {
     longOnly: true,
     minWeightPct: 0,
@@ -79,6 +83,31 @@ export function OptimizeWorkspace() {
   }, []);
 
   const selectedFunds = request.funds;
+
+  // Same landmine fix as the backtester: "is this date range usable" must
+  // come from GET /api/funds/testable-range (server-side, gap-aware), not
+  // from naively intersecting each fund's own nav_start/nav_end -- that
+  // misses gaps *inside* the range. See CLAUDE.md "Known landmines".
+  const selectedProjIds = useMemo(
+    () => [...new Set(request.funds.map((f) => f.proj_id))].sort(),
+    [request.funds]
+  );
+  const [testableRange, setTestableRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
+
+  useEffect(() => {
+    if (!selectedProjIds.length) {
+      setTestableRange({ start: null, end: null });
+      return;
+    }
+    let ignore = false;
+    fetchTestableRange(selectedProjIds)
+      .then((range) => { if (!ignore) setTestableRange(range); })
+      .catch(() => { if (!ignore) setTestableRange({ start: null, end: null }); });
+    return () => {
+      ignore = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjIds.join(",")]);
 
   function goToStep(index: number) {
     setCurrentStep(index);
@@ -182,6 +211,7 @@ export function OptimizeWorkspace() {
           onChange={updateRequest}
           onRun={submit}
           request={request}
+          testableRange={testableRange}
         />
 
         <div className={currentStep === 2 ? "page active" : "page"}>
