@@ -56,6 +56,19 @@ const RISK_MEASURES: Array<{ id: RiskMeasure; label: string }> = [
   { id: "cdar", label: "CDaR (Conditional Drawdown-at-Risk)" }
 ];
 
+const RANGE_PRESETS: Array<{ label: string; years: number | "max" }> = [
+  { label: "1Y", years: 1 },
+  { label: "3Y", years: 3 },
+  { label: "5Y", years: 5 },
+  { label: "Max", years: "max" }
+];
+
+function shiftYears(dateStr: string, years: number): string {
+  const d = new Date(dateStr);
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString().slice(0, 10);
+}
+
 let viewSeq = 0;
 function nextViewKey() {
   viewSeq += 1;
@@ -80,6 +93,12 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
 
   function patchTimePeriod(next: Partial<OptimizeRequest["timePeriod"]>) {
     onChange({ ...request, timePeriod: { ...request.timePeriod, ...next } });
+  }
+
+  function applyRangePreset(years: number | "max") {
+    const end = testableRange.end ?? request.timePeriod.endDate;
+    const start = years === "max" ? (testableRange.start ?? request.timePeriod.startDate) : shiftYears(end, -years);
+    patchTimePeriod({ startDate: testableRange.start && start < testableRange.start ? testableRange.start : start, endDate: end });
   }
 
   function setExpectedReturnOverride(projId: string, value: number) {
@@ -147,6 +166,13 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
 
       <div className="card">
         <div className="section-title">Time period</div>
+        <div className="range-presets">
+          {RANGE_PRESETS.map((preset) => (
+            <button className="btn btn-chip" key={preset.label} onClick={() => applyRangePreset(preset.years)} type="button">
+              {preset.label}
+            </button>
+          ))}
+        </div>
         <div className="form-grid">
           <div className="form-field">
             <label htmlFor="periodStart">Start date</label>

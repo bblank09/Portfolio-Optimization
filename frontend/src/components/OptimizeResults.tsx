@@ -1,13 +1,14 @@
-import { AlertTriangle, BarChart3 } from "lucide-react";
+import { AlertTriangle, BarChart3, Download } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { SecFund } from "../types/backtest";
-import type { OptimizeResult } from "../types/optimize";
+import type { OptimizeRequest, OptimizeResult } from "../types/optimize";
 
 interface Props {
   result: OptimizeResult | null;
   funds: SecFund[]; // selected shortlist, for display-name lookups
   compareLabel: string | null;
+  request?: OptimizeRequest; // for the Report tab's run_config.json export
 }
 
 type ResultTab = "Summary" | "Frontier" | "Weights" | "Performance" | "Rolling" | "Report";
@@ -18,7 +19,7 @@ const pct = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 // the same color across the Portfolio step and these Results charts.
 const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
 
-export function OptimizeResults({ result, funds, compareLabel }: Props) {
+export function OptimizeResults({ result, funds, compareLabel, request }: Props) {
   const [activeTab, setActiveTab] = useState<ResultTab>("Summary");
   const nameOf = (projId: string) => funds.find((f) => f.proj_id === projId)?.display_name ?? projId;
 
@@ -49,6 +50,9 @@ export function OptimizeResults({ result, funds, compareLabel }: Props) {
           <span className="sourceLine">Optimization result</span>
           <h2>{funds.length} funds &middot; mock data (Phase 4, no backend yet)</h2>
         </div>
+        <button className="secondaryButton" onClick={() => downloadText("optimization-result.json", JSON.stringify(result, null, 2), "application/json")} type="button">
+          <Download size={16} /> Result JSON
+        </button>
       </div>
 
       <nav aria-label="Optimization output tabs" className="resultTabs">
@@ -64,7 +68,7 @@ export function OptimizeResults({ result, funds, compareLabel }: Props) {
       {activeTab === "Weights" ? <WeightsTab compareLabel={compareLabel} nameOf={nameOf} result={result} /> : null}
       {activeTab === "Performance" ? <PerformanceTab result={result} /> : null}
       {activeTab === "Rolling" ? <RollingTab result={result} /> : null}
-      {activeTab === "Report" ? <ReportTab compareLabel={compareLabel} nameOf={nameOf} result={result} /> : null}
+      {activeTab === "Report" ? <ReportTab compareLabel={compareLabel} nameOf={nameOf} request={request} result={result} /> : null}
     </section>
   );
 }
@@ -372,6 +376,11 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
           </table>
         </div>
       </section>
+      <section className="chartPanel">
+        <h3>Correlation matrix</h3>
+        <p className="field-hint">Same pairwise correlations as the table above, laid out as a grid so clusters of highly correlated funds -- the ones giving the least diversification benefit -- are visible at a glance.</p>
+        <CorrelationMatrix nameOf={nameOf} result={result} />
+      </section>
       <section className="tablePanel compactTable">
         <h3>Efficient frontier points</h3>
         <div className="tableScroller">
@@ -462,6 +471,46 @@ function TransitionMap({ result, nameOf }: { result: OptimizeResult; nameOf: (id
         ))}
       </div>
     </section>
+  );
+}
+
+// Grid/heatmap layout of the same pairwise correlations as the row-list
+// table above it -- clusters of highly-correlated funds (low diversification
+// benefit) are visible at a glance in a way a flat list doesn't show.
+function CorrelationMatrix({ result, nameOf }: { result: OptimizeResult; nameOf: (id: string) => string }) {
+  const ids = result.assetSummary.map((row) => row.projId);
+  function correlationOf(a: string, b: string): number {
+    if (a === b) return 1;
+    const row = result.correlations.find((c) => (c.projId1 === a && c.projId2 === b) || (c.projId1 === b && c.projId2 === a));
+    return row?.correlation ?? 0;
+  }
+  function colorFor(value: number): string {
+    if (value >= 0.7) return "rgba(180, 35, 24, 0.75)";
+    if (value >= 0.4) return "rgba(180, 35, 24, 0.4)";
+    if (value >= 0.1) return "rgba(180, 35, 24, 0.15)";
+    if (value <= -0.4) return "rgba(14, 165, 233, 0.4)";
+    if (value <= -0.1) return "rgba(14, 165, 233, 0.15)";
+    return "transparent";
+  }
+  return (
+    <div className="tableScroller">
+      <table>
+        <thead>
+          <tr><th /> {ids.map((id) => <th key={id}>{nameOf(id)}</th>)}</tr>
+        </thead>
+        <tbody>
+          {ids.map((rowId) => (
+            <tr key={rowId}>
+              <td><b>{nameOf(rowId)}</b></td>
+              {ids.map((colId) => {
+                const value = correlationOf(rowId, colId);
+                return <td key={colId} style={{ background: colorFor(value), textAlign: "center" }}>{value.toFixed(2)}</td>;
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -685,6 +734,38 @@ function PerformanceTab({ result }: { result: OptimizeResult }) {
   );
 }
 
+// Rolling line chart for a single non-return-indexed series -- realizedSharpe
+// per fold doesn't compound like a return series does, so this plots the
+// raw values directly instead of reusing EquityCurveChart's growth-of-100 math.
+function RollingSharpeChart({ rolling }: { rolling: OptimizeResult["rolling"] }) {
+  if (!rolling.length) return null;
+  const width = 640;
+  const height = 200;
+  const padding = 40;
+  const values = rolling.map((f) => f.realizedSharpe);
+  const minV = Math.min(...values, 0);
+  const maxV = Math.max(...values, 0);
+  const n = values.length;
+  const x = (i: number) => padding + (i / Math.max(n - 1, 1)) * (width - padding * 2);
+  const y = (v: number) => height - padding - ((v - minV) / (maxV - minV || 1)) * (height - padding * 2);
+  const path = values.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(v)}`).join(" ");
+  return (
+    <section className="chartPanel">
+      <h3>Rolling Sharpe across folds</h3>
+      <p className="field-hint">A single end-of-run Sharpe can look good purely by luck of the sample; this tracks how the realized, out-of-sample Sharpe held up fold to fold.</p>
+      <div className="chartCanvas">
+        <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
+          <line className="gridLine" x1={padding} x2={width - padding} y1={y(0)} y2={y(0)} />
+          <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
+          <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} />
+          <text className="axisText" x={width / 2} y={height - 8}>Fold</text>
+          <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Realized Sharpe</text>
+        </svg>
+      </div>
+    </section>
+  );
+}
+
 function RollingTab({ result }: { result: OptimizeResult }) {
   return (
     <div className="tabStack">
@@ -692,6 +773,7 @@ function RollingTab({ result }: { result: OptimizeResult }) {
         series={[{ label: "Rolling out-of-sample", returnsPct: result.rolling.map((f) => f.realizedReturnPct), color: "#5b21d6" }]}
         title="Growth of 100 (rolling out-of-sample)"
       />
+      <RollingSharpeChart rolling={result.rolling} />
       <section className="tablePanel">
         <h3>Rolling out-of-sample folds</h3>
         <p className="field-hint">Each fold re-optimizes on the lookback window, then scores realized performance on the next period.</p>
@@ -715,13 +797,17 @@ function RollingTab({ result }: { result: OptimizeResult }) {
   );
 }
 
-function ReportTab({ result, compareLabel, nameOf }: { result: OptimizeResult; compareLabel: string | null; nameOf: (id: string) => string }) {
+function ReportTab({ result, compareLabel, nameOf, request }: { result: OptimizeResult; compareLabel: string | null; nameOf: (id: string) => string; request?: OptimizeRequest }) {
   return (
     <div className="tabStack">
       <section className="chartPanel">
         <h3>Export</h3>
         <div className="exportActions">
           <button className="secondaryButton" onClick={() => downloadText("optimization-result.json", JSON.stringify(result, null, 2), "application/json")} type="button">result.json</button>
+          {request ? (
+            <button className="secondaryButton" onClick={() => downloadText("run_config.json", JSON.stringify(request, null, 2), "application/json")} type="button">run_config.json</button>
+          ) : null}
+          <button className="secondaryButton" onClick={() => downloadText("metrics.json", JSON.stringify(result.performanceSummary, null, 2), "application/json")} type="button">metrics.json</button>
           <button className="secondaryButton" onClick={() => window.print()} type="button">Print / Save PDF</button>
         </div>
       </section>

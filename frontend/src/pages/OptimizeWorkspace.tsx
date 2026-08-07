@@ -61,6 +61,28 @@ const initialRequest: OptimizeRequest = {
   }
 };
 
+// No backend persists a run yet (Phase 4 mock -- see CLAUDE.md), so there's
+// no server-issued run_id to put in a shareable URL the way the sibling
+// backtester's copyShareLink does. runMockOptimize is fully deterministic
+// from the request alone, though, so a shareable link here encodes the
+// request itself (funds reduced to proj_ids) -- reloading it reproduces the
+// identical result client-side, no backend round-trip needed.
+type SharedRequest = Omit<OptimizeRequest, "funds"> & { fundProjIds: string[] };
+
+function encodeShareState(request: OptimizeRequest): string {
+  const { funds, ...rest } = request;
+  const shared: SharedRequest = { ...rest, fundProjIds: funds.map((f) => f.proj_id) };
+  return btoa(encodeURIComponent(JSON.stringify(shared)));
+}
+
+function decodeShareState(raw: string): SharedRequest | null {
+  try {
+    return JSON.parse(decodeURIComponent(atob(raw))) as SharedRequest;
+  } catch {
+    return null;
+  }
+}
+
 export function OptimizeWorkspace() {
   const [funds, setFunds] = useState<SecFund[]>([]);
   const [request, setRequest] = useState<OptimizeRequest>(initialRequest);
@@ -69,6 +91,7 @@ export function OptimizeWorkspace() {
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [unlockedStep, setUnlockedStep] = useState(0);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => (localStorage.getItem("po-theme") === "dark" ? "dark" : "light"));
 
   useEffect(() => {
@@ -81,6 +104,33 @@ export function OptimizeWorkspace() {
       .then((loadedFunds) => setFunds(loadedFunds))
       .catch((caught: Error) => setError(caught.message));
   }, []);
+
+  // Restore a shared link (?state=<encoded request>) once funds are loaded
+  // (needed to resolve fundProjIds back into full SecFund objects), then
+  // replay the same deterministic mock and jump straight to Results.
+  useEffect(() => {
+    if (!funds.length) return;
+    const url = new URL(window.location.href);
+    const raw = url.searchParams.get("state");
+    if (!raw) return;
+    const shared = decodeShareState(raw);
+    if (!shared) return;
+    const { fundProjIds, ...rest } = shared;
+    const restoredFunds = fundProjIds.map((id) => funds.find((f) => f.proj_id === id)).filter((f): f is SecFund => Boolean(f));
+    const restored: OptimizeRequest = { ...(rest as OptimizeRequest), funds: restoredFunds };
+    setRequest(restored);
+    if (restoredFunds.length >= 2) {
+      try {
+        setResult(runMockOptimize(restored));
+        setUnlockedStep(2);
+        setCurrentStep(2);
+      } catch {
+        // Malformed/stale shared state -- fall back to leaving the user on
+        // Step 1 with the restored selections instead of a broken Results page.
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [funds.length]);
 
   const selectedFunds = request.funds;
 
@@ -175,6 +225,23 @@ export function OptimizeWorkspace() {
     setError("");
     setUnlockedStep(0);
     goToStep(0);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("state");
+    window.history.replaceState(null, "", url);
+  }
+
+  async function copyShareLink() {
+    const url = new URL(window.location.href);
+    url.searchParams.set("state", encodeShareState(request));
+    window.history.replaceState(null, "", url);
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // Clipboard access can be denied by the browser -- fail silently,
+      // the URL is still visible and copyable from the address bar.
+    }
   }
 
   return (
@@ -215,10 +282,15 @@ export function OptimizeWorkspace() {
         />
 
         <div className={currentStep === 2 ? "page active" : "page"}>
-          <OptimizeResults compareLabel={COMPARE_LABELS[request.constraints.compareAgainst]} funds={selectedFunds} result={result} />
+          <OptimizeResults compareLabel={COMPARE_LABELS[request.constraints.compareAgainst]} funds={selectedFunds} request={request} result={result} />
           <div className="actions">
             <button className="btn btn-ghost" onClick={() => goToStep(1)} type="button">&larr; Adjust assumptions</button>
             <button className="btn btn-ghost" onClick={startOver} type="button">Start a new optimization</button>
+            {result ? (
+              <button className="btn btn-ghost" onClick={copyShareLink} type="button">
+                {linkCopied ? "Link copied" : "Copy shareable link"}
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
