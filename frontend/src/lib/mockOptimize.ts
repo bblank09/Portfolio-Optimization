@@ -64,7 +64,8 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
       rolling: [],
       blackLitterman: null,
       monthlyReturnsPct: [],
-      selectedRiskMeasure: { measure: request.riskMeasure, label: "", optimizedValue: 0, comparedValue: null, unit: "pct" }
+      selectedRiskMeasure: { measure: request.riskMeasure, label: "", optimizedValue: 0, comparedValue: null, unit: "pct" },
+      generatedAt: new Date().toISOString()
     };
   }
 
@@ -121,7 +122,8 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
     rolling,
     blackLitterman,
     monthlyReturnsPct,
-    selectedRiskMeasure
+    selectedRiskMeasure,
+    generatedAt: new Date().toISOString()
   };
 }
 

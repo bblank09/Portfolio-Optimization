@@ -1,5 +1,6 @@
 import { AlertTriangle, BarChart3 } from "lucide-react";
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type { SecFund } from "../types/backtest";
 import type { OptimizeResult } from "../types/optimize";
 
@@ -63,7 +64,70 @@ export function OptimizeResults({ result, funds, compareLabel }: Props) {
       {activeTab === "Weights" ? <WeightsTab compareLabel={compareLabel} nameOf={nameOf} result={result} /> : null}
       {activeTab === "Performance" ? <PerformanceTab result={result} /> : null}
       {activeTab === "Rolling" ? <RollingTab result={result} /> : null}
-      {activeTab === "Report" ? <ReportTab compareLabel={compareLabel} result={result} /> : null}
+      {activeTab === "Report" ? <ReportTab compareLabel={compareLabel} nameOf={nameOf} result={result} /> : null}
+    </section>
+  );
+}
+
+function downloadText(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+// Simple cumulative-growth line chart -- same visual idiom as the other
+// SVG charts in this file (axisChart/gridLine), not the sibling
+// backtester's more elaborate hover-tooltip AxisCurve. Turns a return
+// series into an indexed growth path starting at 100.
+function EquityCurveChart({ title, series }: { title: string; series: { label: string; returnsPct: number[]; color: string }[] }) {
+  const width = 640;
+  const height = 240;
+  const padding = 40;
+  const paths = series.map((s) => {
+    let value = 100;
+    const points = [value, ...s.returnsPct.map((r) => (value *= 1 + r / 100))];
+    return { ...s, points };
+  });
+  const allValues = paths.flatMap((p) => p.points);
+  if (!allValues.length) return null;
+  const minV = Math.min(...allValues);
+  const maxV = Math.max(...allValues);
+  const n = paths[0]?.points.length ?? 1;
+  const x = (i: number) => padding + (i / Math.max(n - 1, 1)) * (width - padding * 2);
+  const y = (v: number) => height - padding - ((v - minV) / (maxV - minV || 1)) * (height - padding * 2);
+
+  return (
+    <section className="chartPanel">
+      <h3>{title}</h3>
+      <div className="chartCanvas">
+        <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
+          <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
+          <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
+          {paths.map((p) => (
+            <path
+              d={p.points.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(v)}`).join(" ")}
+              fill="none"
+              key={p.label}
+              stroke={p.color}
+              strokeWidth={2}
+            />
+          ))}
+          <text className="axisText" x={width / 2} y={height - 8}>Period</text>
+          <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Growth of 100</text>
+        </svg>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
+        {paths.map((p) => (
+          <div key={p.label} style={{ alignItems: "center", display: "flex", fontSize: 12.5, gap: 6 }}>
+            <span style={{ background: p.color, borderRadius: 2, display: "inline-block", height: 10, width: 10 }} />
+            {p.label} &mdash; ends at {p.points[p.points.length - 1].toFixed(1)}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -136,6 +200,7 @@ function SummaryTab({ result, nameOf, compareLabel, setActiveTab }: { result: Op
         <h3>Risk contribution</h3>
         <RiskContributionBars nameOf={nameOf} riskContributionPct={result.riskContributionPct} />
       </section>
+      <ResultChecklist compareLabel={compareLabel} result={result} />
       {compareLabel ? (
         <p className="field-hint">Compared against <b>{compareLabel}</b> in the Weights and Performance tabs.</p>
       ) : null}
@@ -150,6 +215,51 @@ function ClickableMetric({ label, value, sub, onClick }: { label: string; value:
       <strong>{value}</strong>
       <small>{sub}</small>
     </button>
+  );
+}
+
+// Mirrors the sibling backtester's own Summary-tab "Result checklist" --
+// a quick pass/fail scan of the run, not just headline numbers.
+function ResultChecklist({ result, compareLabel }: { result: OptimizeResult; compareLabel: string | null }) {
+  const weightSum = Object.values(result.optimalWeights).reduce((a, b) => a + b, 0);
+  const items: { label: string; status: "ok" | "warn"; detail: string }[] = [
+    {
+      label: "Weights sum to 100%",
+      status: Math.abs(weightSum - 100) < 0.5 ? "ok" : "warn",
+      detail: `${pct.format(weightSum)}%`
+    },
+    { label: "Solver converged", status: "ok", detail: "feasible solution found" },
+    {
+      label: "Robust optimization",
+      status: "ok",
+      detail: result.robustNote ? "applied" : "not enabled"
+    },
+    {
+      label: "Comparison allocation",
+      status: "ok",
+      detail: compareLabel ? `vs. ${compareLabel}` : "none selected"
+    }
+  ];
+  if (result.blackLitterman) {
+    items.push({ label: "Black-Litterman views", status: "ok", detail: "equilibrium returns adjusted" });
+  }
+  return (
+    <section className="tablePanel">
+      <h3>Result checklist</h3>
+      <div className="tableScroller">
+        <table>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.label}>
+                <td>{item.label}</td>
+                <td><span className={item.status === "ok" ? "pill ok" : "pill warn"}>{item.status === "ok" ? "OK" : "Check"}</span></td>
+                <td>{item.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -371,7 +481,20 @@ function WeightsTab({ result, nameOf, compareLabel }: { result: OptimizeResult; 
         ) : null}
       </section>
       <section className="tablePanel">
-        <h3>Optimal weights{compareLabel ? ` vs. ${compareLabel}` : ""}</h3>
+        <div className="panelHeader">
+          <h3>Optimal weights{compareLabel ? ` vs. ${compareLabel}` : ""}</h3>
+          <button
+            className="secondaryButton"
+            onClick={() => downloadText(
+              "optimal-weights.json",
+              JSON.stringify({ optimized: result.optimalWeights, compared: result.compareWeights }, null, 2),
+              "application/json"
+            )}
+            type="button"
+          >
+            weights.json
+          </button>
+        </div>
         <div className="tableScroller">
           <table>
             <thead>
@@ -494,6 +617,7 @@ function PerformanceTab({ result }: { result: OptimizeResult }) {
           </table>
         </div>
       </section>
+      <EquityCurveChart series={[{ label: "Optimized", returnsPct: result.monthlyReturnsPct, color: "#5b21d6" }]} title="Growth of 100 (optimized portfolio)" />
       <ReturnHistogram monthlyReturnsPct={result.monthlyReturnsPct} />
     </div>
   );
@@ -502,6 +626,10 @@ function PerformanceTab({ result }: { result: OptimizeResult }) {
 function RollingTab({ result }: { result: OptimizeResult }) {
   return (
     <div className="tabStack">
+      <EquityCurveChart
+        series={[{ label: "Rolling out-of-sample", returnsPct: result.rolling.map((f) => f.realizedReturnPct), color: "#5b21d6" }]}
+        title="Growth of 100 (rolling out-of-sample)"
+      />
       <section className="tablePanel">
         <h3>Rolling out-of-sample folds</h3>
         <p className="field-hint">Each fold re-optimizes on the lookback window, then scores realized performance on the next period.</p>
@@ -525,21 +653,68 @@ function RollingTab({ result }: { result: OptimizeResult }) {
   );
 }
 
-function ReportTab({ result, compareLabel }: { result: OptimizeResult; compareLabel: string | null }) {
+function ReportTab({ result, compareLabel, nameOf }: { result: OptimizeResult; compareLabel: string | null; nameOf: (id: string) => string }) {
   return (
-    <div className="reportPanel">
-      <section>
-        <h3>Methodology</h3>
-        <p>This run used the objective, risk measure, return/covariance estimation method, and constraints set in the Assumptions step. See <code>docs/optimization-assumptions.md</code> and <code>docs/mock-ui-spec.md</code> for the sourced methodology behind every field.</p>
+    <div className="tabStack">
+      <section className="chartPanel">
+        <h3>Export</h3>
+        <div className="exportActions">
+          <button className="secondaryButton" onClick={() => downloadText("optimization-result.json", JSON.stringify(result, null, 2), "application/json")} type="button">result.json</button>
+          <button className="secondaryButton" onClick={() => window.print()} type="button">Print / Save PDF</button>
+        </div>
       </section>
-      <section>
-        <h3>Comparison</h3>
-        <p>{compareLabel ? `Compared against ${compareLabel}.` : "No comparison allocation was selected."}</p>
-      </section>
-      <section>
-        <h3>Status</h3>
-        <p>Phase 4 mock -- these numbers are deterministically generated from your inputs for UI review, not a real optimization. Phase 5 wires this to a real riskfolio-lib-backed backend.</p>
+
+      <section className="reportPanel">
+        <h3>Optimization Report</h3>
+        <p className="footnote">Generated {result.generatedAt} &middot; mock data, Phase 4 &mdash; no real optimization has run yet</p>
+
+        <ReportSection title="1. Objective">
+          <p>Risk measure: <b>{result.selectedRiskMeasure.label}</b> (achieved value: {pct.format(result.selectedRiskMeasure.optimizedValue)}%). {compareLabel ? `Compared against ${compareLabel}.` : "No comparison allocation was selected."}</p>
+        </ReportSection>
+
+        <ReportSection title="2. Data and methodology">
+          <p>This run used the objective, risk measure, return/covariance estimation method, and constraints set in the Assumptions step. See <code>docs/optimization-assumptions.md</code> and <code>docs/mock-ui-spec.md</code> for the sourced methodology behind every field.</p>
+        </ReportSection>
+
+        <ReportSection title="3. Optimal allocation">
+          <div className="tableScroller">
+            <table>
+              <thead><tr><th>Fund</th><th>Weight</th></tr></thead>
+              <tbody>
+                {Object.entries(result.optimalWeights).sort((a, b) => b[1] - a[1]).map(([id, w]) => (
+                  <tr key={id}><td>{nameOf(id)}</td><td>{pct.format(w)}%</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ReportSection>
+
+        <ReportSection title="4. Performance results">
+          <div className="tableScroller">
+            <table>
+              <thead><tr><th>Metric</th>{result.performanceSummary.map((c) => <th key={c.label}>{c.label}</th>)}</tr></thead>
+              <tbody>
+                <tr><td>Expected return</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.expectedReturnPct)}%</td>)}</tr>
+                <tr><td>Std deviation</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.stdDevPct)}%</td>)}</tr>
+                <tr><td>Sharpe (ex-ante)</td>{result.performanceSummary.map((c) => <td key={c.label}>{c.sharpeExAnte}</td>)}</tr>
+              </tbody>
+            </table>
+          </div>
+        </ReportSection>
+
+        <ReportSection title="5. Status">
+          <p>Phase 4 mock &mdash; these numbers are deterministically generated from your inputs for UI review, not a real optimization. Phase 5 wires this to a real riskfolio-lib-backed backend.</p>
+        </ReportSection>
       </section>
     </div>
+  );
+}
+
+function ReportSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <strong>{title}</strong>
+      {children}
+    </section>
   );
 }

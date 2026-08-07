@@ -181,4 +181,5 @@ export interface OptimizeResult {
   // Performance tab always showed generic Std Dev/Max Drawdown regardless
   // of which risk measure was selected.
   selectedRiskMeasure: SelectedRiskMeasureResult;
+  generatedAt: string; // ISO timestamp, for the Report tab's run metadata line
 }
