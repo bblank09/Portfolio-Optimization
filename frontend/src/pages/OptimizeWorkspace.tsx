@@ -19,6 +19,7 @@ const COMPARE_LABELS: Record<OptimizeRequest["constraints"]["compareAgainst"], s
 
 const initialRequest: OptimizeRequest = {
   funds: [],
+  fundBounds: {},
   goal: "max_sharpe",
   riskMeasure: "std_dev",
   targetAnnualVolatilityPct: 10,
@@ -73,20 +74,28 @@ export function OptimizeWorkspace() {
     goToStep(index);
   }
 
-  // PortfolioStep is reused from the backtester with weightsOptional=true --
-  // confirmed live against PortfolioVisualizer's own optimize-portfolio tool
-  // ("Portfolio asset weights and constraints are optional"). It still
-  // produces SecFundAllocation[] with a per-fund "weight", but this mock
-  // doesn't yet feed that weight anywhere (Phase 5: it would become the
-  // reference/starting allocation, matching PV's own optional-allocation
-  // behavior). See docs/mock-ui-spec.md Step 1.
+  // PortfolioStep is reused from the backtester with weightsOptional=true
+  // and showWeightBounds=true -- confirmed live against PortfolioVisualizer's
+  // own optimize-portfolio tool ("Portfolio asset weights and constraints
+  // are optional", and its default "Asset Constraints: Yes" puts Min./Max.
+  // Weight columns directly in the same asset table). The per-fund weight
+  // itself isn't fed anywhere yet (Phase 5: it would become the reference/
+  // starting allocation); the per-fund min/max bounds ARE used, in
+  // mockOptimize's allocateWeights. See docs/mock-ui-spec.md Step 1.
   function handleAssetsChange(assets: SecFundAllocation[]) {
     setResult(null);
     setError("");
     const chosen = assets
       .map((a) => funds.find((f) => f.proj_id === a.proj_id))
       .filter((f): f is SecFund => Boolean(f));
-    setRequest((current) => ({ ...current, funds: chosen }));
+    const fundBounds: OptimizeRequest["fundBounds"] = {};
+    for (const asset of assets) {
+      fundBounds[asset.proj_id] = {
+        minWeightPct: asset.min_weight_pct ?? 0,
+        maxWeightPct: asset.max_weight_pct ?? 100
+      };
+    }
+    setRequest((current) => ({ ...current, funds: chosen, fundBounds }));
   }
 
   function updateRequest(next: OptimizeRequest) {
@@ -136,7 +145,7 @@ export function OptimizeWorkspace() {
       </header>
 
       <div className="main">
-        <PortfolioStep active={currentStep === 0} funds={funds} onAssetsChange={handleAssetsChange} onContinue={() => advanceTo(1)} weightsOptional />
+        <PortfolioStep active={currentStep === 0} funds={funds} onAssetsChange={handleAssetsChange} onContinue={() => advanceTo(1)} showWeightBounds weightsOptional />
 
         <OptimizeAssumptionsStep
           active={currentStep === 1}

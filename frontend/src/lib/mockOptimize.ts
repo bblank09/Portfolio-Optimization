@@ -120,16 +120,23 @@ function evaluateFeasibility(request: OptimizeRequest): { status: FeasibilitySta
       message: `At least one selected fund has only ${minHistory} months of NAV history, less than the ${neededMonths}-month lookback period selected in Constraints. Shorten the lookback period or remove that fund.`
     };
   }
-  if (request.constraints.minWeightPct * request.funds.length > 100) {
+  // Sum of each fund's own minimum (per-fund override from Step 1, or the
+  // constraints-level default for any fund without one) -- not just the
+  // global default times fund count, now that bounds can differ per fund.
+  const totalMinWeight = request.funds.reduce(
+    (sum, fund) => sum + (request.fundBounds[fund.proj_id]?.minWeightPct ?? request.constraints.minWeightPct),
+    0
+  );
+  if (totalMinWeight > 100) {
     return {
       status: "infeasible_constraints",
-      message: `Minimum weight ${request.constraints.minWeightPct}% across ${request.funds.length} funds requires more than 100% total allocation. Lower the minimum weight or add more funds.`
+      message: `The selected funds' minimum weights add up to ${totalMinWeight.toFixed(1)}%, more than 100% total allocation. Lower one or more minimums (Step 1) or add more funds.`
     };
   }
-  if (request.constraints.maxHoldings > 0 && request.constraints.maxHoldings < request.funds.length && request.constraints.minWeightPct > 0) {
+  if (request.constraints.maxHoldings > 0 && request.constraints.maxHoldings < request.funds.length && totalMinWeight > 0) {
     return {
       status: "infeasible_constraints",
-      message: `Max holdings (${request.constraints.maxHoldings}) is less than the number of selected funds (${request.funds.length}) while a minimum weight is also set -- the solver has no valid combination that satisfies both. Raise max holdings, remove the minimum weight, or deselect funds.`
+      message: `Max holdings (${request.constraints.maxHoldings}) is less than the number of selected funds (${request.funds.length}) while a minimum weight is also set -- the solver has no valid combination that satisfies both. Raise max holdings, remove the minimum weights, or deselect funds.`
     };
   }
   return { status: "ok", message: null };
@@ -140,7 +147,6 @@ function allocateWeights(
   request: OptimizeRequest,
   rand: () => number
 ): Record<string, number> {
-  const { minWeightPct, maxWeightPct } = request.constraints;
   // Objective-flavored raw scores: risk_parity/hrp lean toward inverse-vol,
   // return-seeking objectives lean toward return/vol (a crude Sharpe proxy).
   const scores = perAsset.map(({ fund, expectedReturnPct, volatilityPct }) => {
@@ -159,19 +165,64 @@ function allocateWeights(
   const raw: Record<string, number> = {};
   for (const s of scores) raw[s.projId] = (s.score / totalScore) * 100;
 
-  return clampAndRenormalize(raw, minWeightPct, maxWeightPct);
+  // Per-fund bounds (Step 1 asset table) win over the constraints-level
+  // default -- confirmed live against PV, whose Min./Max. Weight columns
+  // live per-asset, not as one global pair.
+  const bounds: Record<string, { min: number; max: number }> = {};
+  for (const { fund } of perAsset) {
+    const perFund = request.fundBounds[fund.proj_id];
+    bounds[fund.proj_id] = {
+      min: perFund?.minWeightPct ?? request.constraints.minWeightPct,
+      max: perFund?.maxWeightPct ?? request.constraints.maxWeightPct
+    };
+  }
+  return clampAndRenormalize(raw, bounds);
 }
 
-function clampAndRenormalize(raw: Record<string, number>, minPct: number, maxPct: number): Record<string, number> {
-  const clamped: Record<string, number> = {};
-  for (const [id, w] of Object.entries(raw)) {
-    clamped[id] = Math.min(maxPct, Math.max(minPct, w));
+// Redistributes `raw` shares to sum to exactly 100% while respecting each
+// id's [min, max] bound -- a plain "clamp then scale every value by
+// 100/total" (the previous implementation) re-violates the bounds it just
+// applied, because scaling up pushes already-at-max entries back over their
+// cap. This is a standard bounded water-filling pass: repeatedly clamp,
+// lock any entry that hit a bound at that bound, and redistribute the
+// remainder proportionally among the still-free entries, until nothing
+// new gets clamped (or bounds are numerically infeasible and the caller's
+// evaluateFeasibility should have already rejected the request).
+function clampAndRenormalize(raw: Record<string, number>, bounds: Record<string, { min: number; max: number }>): Record<string, number> {
+  const ids = Object.keys(raw);
+  const result: Record<string, number> = {};
+  const locked = new Set<string>();
+
+  for (let pass = 0; pass < ids.length + 1; pass++) {
+    const freeIds = ids.filter((id) => !locked.has(id));
+    if (freeIds.length === 0) break;
+
+    const lockedTotal = [...locked].reduce((sum, id) => sum + result[id], 0);
+    const remaining = 100 - lockedTotal;
+    const freeRawTotal = freeIds.reduce((sum, id) => sum + raw[id], 0);
+
+    let newlyLocked = false;
+    for (const id of freeIds) {
+      const bound = bounds[id] ?? { min: 0, max: 100 };
+      const share = freeRawTotal > 0 ? (raw[id] / freeRawTotal) * remaining : remaining / freeIds.length;
+      if (share <= bound.min) {
+        result[id] = bound.min;
+        locked.add(id);
+        newlyLocked = true;
+      } else if (share >= bound.max) {
+        result[id] = bound.max;
+        locked.add(id);
+        newlyLocked = true;
+      } else {
+        result[id] = share;
+      }
+    }
+    if (!newlyLocked) break;
   }
-  const total = Object.values(clamped).reduce((a, b) => a + b, 0);
-  if (total <= 0) return clamped;
-  const scaled: Record<string, number> = {};
-  for (const [id, w] of Object.entries(clamped)) scaled[id] = Number(((w / total) * 100).toFixed(2));
-  return scaled;
+
+  const rounded: Record<string, number> = {};
+  for (const id of ids) rounded[id] = Number((result[id] ?? 0).toFixed(2));
+  return rounded;
 }
 
 function buildCompareWeights(
@@ -250,8 +301,8 @@ function buildAssetSummary(
     expectedReturnPct: Number(expectedReturnPct.toFixed(2)),
     volatilityPct: Number(volatilityPct.toFixed(2)),
     sharpe: Number((expectedReturnPct / Math.max(volatilityPct, 0.5)).toFixed(3)),
-    minWeightPct: request.constraints.minWeightPct,
-    maxWeightPct: request.constraints.maxWeightPct
+    minWeightPct: request.fundBounds[fund.proj_id]?.minWeightPct ?? request.constraints.minWeightPct,
+    maxWeightPct: request.fundBounds[fund.proj_id]?.maxWeightPct ?? request.constraints.maxWeightPct
   }));
 }
 

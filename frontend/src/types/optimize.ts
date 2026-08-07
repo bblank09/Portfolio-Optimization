@@ -58,8 +58,19 @@ export interface OptimizeConstraints {
   compareAgainst: CompareAgainst;
 }
 
+export interface FundBound {
+  minWeightPct: number;
+  maxWeightPct: number;
+}
+
 export interface OptimizeRequest {
   funds: SecFund[]; // the Step 1 shortlist
+  // Per-fund weight bounds set directly in the Step 1 asset table --
+  // confirmed live against PortfolioVisualizer's optimize-portfolio tool
+  // (Min./Max. Weight columns live there, not in a separate constraints
+  // step). Falls back to constraints.minWeightPct/maxWeightPct for any
+  // fund without an entry here.
+  fundBounds: Record<string, FundBound>;
   goal: ObjectiveGoal;
   riskMeasure: RiskMeasure;
   targetAnnualVolatilityPct: number | null; // only used with max_return_target_vol

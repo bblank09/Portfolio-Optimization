@@ -7,6 +7,14 @@ export interface SecFundAllocation {
   proj_id: string;
   display_name: string;
   weight: number;
+  // Per-fund weight bounds -- only populated when PortfolioStep's
+  // showWeightBounds prop is set (OptimizeWorkspace). Confirmed live
+  // against PortfolioVisualizer's optimize-portfolio tool: with "Asset
+  // Constraints: Yes" (its default), Min./Max. Weight columns sit directly
+  // in the same asset-selection table as fund pick + allocation, not in a
+  // separate step. Unused by the backtester.
+  min_weight_pct?: number;
+  max_weight_pct?: number;
 }
 
 export interface DataStatus {

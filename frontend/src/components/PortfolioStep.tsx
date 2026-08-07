@@ -8,6 +8,10 @@ interface Row {
   projId: string;
   weight: number;
   query: string;
+  // Only rendered/emitted when showWeightBounds is set. 0/100 means
+  // "unconstrained" (matches PortfolioVisualizer's blank-field default).
+  minWeight: number;
+  maxWeight: number;
 }
 
 interface Facet {
@@ -73,6 +77,12 @@ interface Props {
   // optional") -- weights here are a reference/starting point, not a
   // requirement, since the optimizer computes the real weights.
   weightsOptional?: boolean;
+  // Default false so BacktestWorkspace is unaffected. OptimizeWorkspace
+  // passes true: confirmed live against PortfolioVisualizer's
+  // optimize-portfolio tool -- with its default "Asset Constraints: Yes",
+  // Min./Max. Weight columns sit in the same Portfolio Assets table as
+  // fund pick + allocation, not deferred to a separate constraints step.
+  showWeightBounds?: boolean;
 }
 
 const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
@@ -83,8 +93,8 @@ function nextKey() {
   return `row-${rowSeq}`;
 }
 
-export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weightsOptional = false }: Props) {
-  const [rows, setRows] = useState<Row[]>([{ key: nextKey(), projId: "", weight: 0, query: "" }]);
+export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weightsOptional = false, showWeightBounds = false }: Props) {
+  const [rows, setRows] = useState<Row[]>([{ key: nextKey(), projId: "", weight: 0, query: "", minWeight: 0, maxWeight: 100 }]);
   const [amcFilter, setAmcFilter] = useState<Set<string>>(new Set());
   const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
   const seededRef = useRef(false);
@@ -141,17 +151,18 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
       .map((row) => ({
         proj_id: row.projId,
         display_name: fundsById.get(row.projId)?.display_name ?? row.query,
-        weight: row.weight
+        weight: row.weight,
+        ...(showWeightBounds ? { min_weight_pct: row.minWeight, max_weight_pct: row.maxWeight } : {})
       }));
     onAssetsChange(assets);
   }
 
   function seedRows(picks: { fund: SecFund; weight: number }[]) {
-    commit(picks.map(({ fund, weight }) => ({ key: nextKey(), projId: fund.proj_id, weight, query: fund.display_name })));
+    commit(picks.map(({ fund, weight }) => ({ key: nextKey(), projId: fund.proj_id, weight, query: fund.display_name, minWeight: 0, maxWeight: 100 })));
   }
 
   function addRow() {
-    commit([...rows, { key: nextKey(), projId: "", weight: 0, query: "" }]);
+    commit([...rows, { key: nextKey(), projId: "", weight: 0, query: "", minWeight: 0, maxWeight: 100 }]);
   }
 
   function removeRow(key: string) {
@@ -173,6 +184,14 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
 
   function setWeights(updates: Map<string, number>) {
     commit(rows.map((row) => (updates.has(row.key) ? { ...row, weight: updates.get(row.key)! } : row)));
+  }
+
+  function setMinWeight(key: string, minWeight: number) {
+    commit(rows.map((row) => (row.key === key ? { ...row, minWeight } : row)));
+  }
+
+  function setMaxWeight(key: string, maxWeight: number) {
+    commit(rows.map((row) => (row.key === key ? { ...row, maxWeight } : row)));
   }
 
   // Equal weight / normalize / clear are the standard bulk-allocation actions
@@ -245,8 +264,8 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
           <button className="link-btn" onClick={loadExample} type="button">Load an example portfolio</button>
         </div>
 
-        <div className="holdings-table">
-          <div className="holdings-head">
+        <div className={showWeightBounds ? "holdings-table bounded" : "holdings-table"}>
+          <div className={showWeightBounds ? "holdings-head bounded" : "holdings-head"}>
             <div>SEC Fund</div>
             {/* Same single-line label either way -- the earlier
                 "(optional)" suffix wrapped to a second line and threw off
@@ -254,6 +273,8 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
                 header. The page-head copy and footnote already explain
                 that weights are optional when weightsOptional is set. */}
             <div>Weight %</div>
+            {showWeightBounds ? <div>Min %</div> : null}
+            {showWeightBounds ? <div>Max %</div> : null}
             <div />
           </div>
           {rows.map((row) => (
@@ -275,6 +296,9 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
               onQueryChange={(query) => setQuery(row.key, query)}
               onWeightChange={(weight) => setWeight(row.key, weight)}
               onRemove={() => removeRow(row.key)}
+              showWeightBounds={showWeightBounds}
+              onMinWeightChange={(minWeight) => setMinWeight(row.key, minWeight)}
+              onMaxWeightChange={(maxWeight) => setMaxWeight(row.key, maxWeight)}
             />
           ))}
         </div>
@@ -327,7 +351,10 @@ function HoldingsRow({
   onSelect,
   onQueryChange,
   onWeightChange,
-  onRemove
+  onRemove,
+  showWeightBounds,
+  onMinWeightChange,
+  onMaxWeightChange
 }: {
   row: Row;
   funds: SecFund[];
@@ -345,6 +372,9 @@ function HoldingsRow({
   onQueryChange: (query: string) => void;
   onWeightChange: (weight: number) => void;
   onRemove: () => void;
+  showWeightBounds?: boolean;
+  onMinWeightChange?: (minWeight: number) => void;
+  onMaxWeightChange?: (maxWeight: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -400,7 +430,7 @@ function HoldingsRow({
   }
 
   return (
-    <div className="holdings-row">
+    <div className={showWeightBounds ? "holdings-row bounded" : "holdings-row"}>
       <div className="fund-field" onBlur={handleBlur} ref={fieldRef}>
         <input
           aria-activedescendant={open && visibleOptions[highlight] ? optionId(highlight) : undefined}
@@ -477,6 +507,28 @@ function HoldingsRow({
         value={row.weight}
         onChange={(event) => onWeightChange(Number(event.target.value))}
       />
+      {showWeightBounds ? (
+        <input
+          aria-label="Minimum weight for this fund"
+          className="field num min-weight-input"
+          type="number"
+          min={0}
+          max={100}
+          value={row.minWeight}
+          onChange={(event) => onMinWeightChange?.(Number(event.target.value))}
+        />
+      ) : null}
+      {showWeightBounds ? (
+        <input
+          aria-label="Maximum weight for this fund"
+          className="field num max-weight-input"
+          type="number"
+          min={0}
+          max={100}
+          value={row.maxWeight}
+          onChange={(event) => onMaxWeightChange?.(Number(event.target.value))}
+        />
+      ) : null}
       <button aria-label="Remove fund row" className="icon-btn remove-row" disabled={!canRemove} onClick={onRemove} type="button">
         <X size={15} />
       </button>

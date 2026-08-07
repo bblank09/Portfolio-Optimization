@@ -285,11 +285,12 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
             </select>
           </div>
           <div className="form-field">
-            <label htmlFor="minWeight">Min weight per fund (%)</label>
+            <label htmlFor="minWeight">Default min weight (%)</label>
             <input className="field num" id="minWeight" min={0} onChange={(event) => patchConstraints({ minWeightPct: Number(event.target.value) })} step={0.5} type="number" value={request.constraints.minWeightPct} />
+            <p className="field-hint">Used for any fund without its own Min % set back in the Portfolio step -- per-fund bounds there take priority, matching PortfolioVisualizer's per-asset Min./Max. Weight columns.</p>
           </div>
           <div className="form-field">
-            <label htmlFor="maxWeight">Max weight per fund (%)</label>
+            <label htmlFor="maxWeight">Default max weight (%)</label>
             <input className="field num" id="maxWeight" max={100} min={0} onChange={(event) => patchConstraints({ maxWeightPct: Number(event.target.value) })} step={0.5} type="number" value={request.constraints.maxWeightPct} />
           </div>
           <div className="form-field">
