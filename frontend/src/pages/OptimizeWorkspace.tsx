@@ -122,6 +122,7 @@ export function OptimizeWorkspace() {
     <div className="shell">
       <header className="topbar">
         <div className="brand">
+          <img alt="Portfolio Optimization" className="mark" src="/brand/topbar-mark.png" />
           <span>Portfolio Optimization</span>
           <span className="tag">Mock UI &mdash; Phase 4, no live optimizer yet</span>
         </div>
@@ -132,26 +133,7 @@ export function OptimizeWorkspace() {
       </header>
 
       <div className="main">
-        {/*
-          .main is a flex row, and PortfolioStep renders its own
-          `.page`/`.page.active` wrapper -- a bare sibling banner here would
-          sit beside it as a second flex item instead of stacking above it.
-          This wrapper is the single flex child so the banner and
-          PortfolioStep's own page stack in a column. PortfolioStep itself
-          stays mounted unconditionally (only its `active` prop toggles
-          visibility) so its internal row/filter state survives navigating
-          away to Assumptions and back, matching how BacktestWorkspace keeps
-          every step mounted throughout.
-        */}
-        <div style={{ display: currentStep === 0 ? "flex" : "contents", flexDirection: "column", gap: 16, width: "100%", maxWidth: 1100 }}>
-          {currentStep === 0 ? (
-            <div className="banner">
-              <span className="ic">&#8505;</span>
-              <span>Weights entered below are ignored here &mdash; the optimizer computes them in the next step. Just choose which funds are in scope.</span>
-            </div>
-          ) : null}
-          <PortfolioStep active={currentStep === 0} funds={funds} onAssetsChange={handleAssetsChange} onContinue={() => advanceTo(1)} />
-        </div>
+        <PortfolioStep active={currentStep === 0} funds={funds} onAssetsChange={handleAssetsChange} onContinue={() => advanceTo(1)} />
 
         <OptimizeAssumptionsStep
           active={currentStep === 1}
