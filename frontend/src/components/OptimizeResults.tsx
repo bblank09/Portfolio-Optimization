@@ -55,6 +55,8 @@ export function OptimizeResults({ result, funds, compareLabel, request }: Props)
         </button>
       </div>
 
+      <NotesPanel result={result} />
+
       <nav aria-label="Optimization output tabs" className="resultTabs">
         {TABS.map((tab) => (
           <button className={activeTab === tab ? "resultTab active" : "resultTab"} key={tab} onClick={() => setActiveTab(tab)} type="button">
@@ -178,6 +180,27 @@ function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
       </div>
       <p className="field-hint">Max drawdown over this series: {pct.format(maxDrawdown)}%.</p>
     </section>
+  );
+}
+
+// PV shows a "possible range of expected annual portfolio returns" note at
+// the top of every results page, framed against the efficient frontier's
+// own endpoints -- gives immediate context for where the optimized
+// portfolio sits within what's achievable at all from this shortlist,
+// before the user reads a single tab. Uses data already computed
+// (result.frontier), no new math.
+function NotesPanel({ result }: { result: OptimizeResult }) {
+  if (!result.frontier.length) return null;
+  const rets = result.frontier.map((p) => p.expectedReturnPct);
+  const minRet = Math.min(...rets);
+  const maxRet = Math.max(...rets);
+  return (
+    <div className="notePanel">
+      <p>
+        The possible range of expected annual returns for this shortlist is <b>{pct.format(minRet)}%</b> to <b>{pct.format(maxRet)}%</b>, depending on how much risk is taken -- see the Frontier tab.
+        {result.robustNote ? " Robust optimization was applied to this run." : ""}
+      </p>
+    </div>
   );
 }
 
@@ -332,8 +355,13 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
   const height = 320;
   const padding = 40;
   const markers = [result.optimalPoint, result.gmvPoint, result.tangencyPoint].filter((m): m is NonNullable<typeof m> => Boolean(m));
-  const vols = [...result.frontier.map((p) => p.volatilityPct), ...markers.map((m) => m.volatilityPct)];
-  const rets = [...result.frontier.map((p) => p.expectedReturnPct), ...markers.map((m) => m.expectedReturnPct)];
+  // PV's own frontier chart plots each individual asset at its own
+  // (volatility, return) coordinate, not just the frontier curve and a
+  // couple of named portfolios -- shows at a glance how much the
+  // optimizer actually improved on any single holding.
+  const assetPoints = result.assetSummary.map((row) => ({ id: row.projId, volatilityPct: row.volatilityPct, expectedReturnPct: row.expectedReturnPct }));
+  const vols = [...result.frontier.map((p) => p.volatilityPct), ...markers.map((m) => m.volatilityPct), ...assetPoints.map((a) => a.volatilityPct)];
+  const rets = [...result.frontier.map((p) => p.expectedReturnPct), ...markers.map((m) => m.expectedReturnPct), ...assetPoints.map((a) => a.expectedReturnPct)];
   const minVol = Math.min(...vols);
   const maxVol = Math.max(...vols);
   const minRet = Math.min(...rets);
@@ -356,6 +384,12 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
             <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
             <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
             <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} />
+            {assetPoints.map((a, index) => (
+              <g key={a.id}>
+                <circle cx={x(a.volatilityPct)} cy={y(a.expectedReturnPct)} fill={PALETTE[index % PALETTE.length]} r={4} stroke="var(--bg)" strokeWidth={1.5} />
+                <text className="axisText" fontSize={10} textAnchor="middle" x={x(a.volatilityPct)} y={y(a.expectedReturnPct) - 8}>{nameOf(a.id)}</text>
+              </g>
+            ))}
             {markers.map((m) => (
               <circle cx={x(m.volatilityPct)} cy={y(m.expectedReturnPct)} fill={markerColors[m.label] ?? "var(--text)"} key={m.label} r={5} stroke="var(--bg)" strokeWidth={2} />
             ))}
@@ -368,6 +402,12 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
             <div key={m.label} style={{ alignItems: "center", display: "flex", fontSize: 12.5, gap: 6 }}>
               <span style={{ background: markerColors[m.label] ?? "var(--text)", borderRadius: "50%", display: "inline-block", height: 10, width: 10 }} />
               {m.label} ({pct.format(m.volatilityPct)}% vol, {pct.format(m.expectedReturnPct)}% return)
+            </div>
+          ))}
+          {assetPoints.map((a, index) => (
+            <div key={a.id} style={{ alignItems: "center", display: "flex", fontSize: 12.5, gap: 6 }}>
+              <span style={{ background: PALETTE[index % PALETTE.length], borderRadius: "50%", display: "inline-block", height: 8, width: 8 }} />
+              {nameOf(a.id)} (individual holding)
             </div>
           ))}
         </div>
@@ -747,6 +787,112 @@ function ReturnHistogram({ monthlyReturnsPct }: { monthlyReturnsPct: number[] })
   );
 }
 
+// PV's own Trailing Returns table compounds the last N calendar periods
+// (3 Month/YTD/1Y/3Y/5Y/Full). result.monthlyReturnsPct is a synthetic
+// 36-period sample, not tied to real calendar dates, so this labels
+// periods generically ("Last 3 periods") instead of borrowing calendar
+// labels that would misrepresent mock data as dated history.
+function trailingReturn(monthlyReturnsPct: number[], periods: number): number {
+  const slice = monthlyReturnsPct.slice(-periods);
+  const compounded = slice.reduce((acc, r) => acc * (1 + r / 100), 1);
+  return (compounded - 1) * 100;
+}
+
+function TrailingReturnsPanel({ monthlyReturnsPct }: { monthlyReturnsPct: number[] }) {
+  if (!monthlyReturnsPct.length) return null;
+  const windows = [3, 6, 12, monthlyReturnsPct.length].filter((n, i, arr) => arr.indexOf(n) === i && n <= monthlyReturnsPct.length);
+  const labelFor = (n: number) => (n === monthlyReturnsPct.length ? "Full series" : `Last ${n} periods`);
+  return (
+    <section className="tablePanel">
+      <h3>Trailing returns</h3>
+      <div className="tableScroller">
+        <table>
+          <thead><tr>{windows.map((n) => <th key={n}>{labelFor(n)}</th>)}</tr></thead>
+          <tbody>
+            <tr>{windows.map((n) => <td key={n}>{pct.format(trailingReturn(monthlyReturnsPct, n))}%</td>)}</tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="field-hint">Compounded return over the trailing N periods of the {monthlyReturnsPct.length}-period synthetic series -- not calendar-dated, since this is mock data (see the return distribution note below).</p>
+    </section>
+  );
+}
+
+interface DrawdownPeriod {
+  startIndex: number;
+  troughIndex: number;
+  recoveryIndex: number | null;
+  lengthPeriods: number;
+  drawdownPct: number;
+}
+
+// Same running-peak logic as DrawdownChart, but grouped into discrete
+// underwater periods (a new period starts each time a fresh peak is set)
+// instead of a continuous series -- matches PV's own "worst drawdowns"
+// table shape (Start/Trough/Length/Recovery), derived from the same
+// monthlyReturnsPct data already used for the drawdown chart, no new math.
+function computeDrawdownPeriods(monthlyReturnsPct: number[]): DrawdownPeriod[] {
+  let value = 100;
+  let peak = 100;
+  let peakIndex = 0;
+  let current: DrawdownPeriod | null = null;
+  const periods: DrawdownPeriod[] = [];
+
+  monthlyReturnsPct.forEach((r, i) => {
+    value *= 1 + r / 100;
+    if (value >= peak) {
+      if (current) {
+        current.recoveryIndex = i;
+        periods.push(current);
+        current = null;
+      }
+      peak = value;
+      peakIndex = i;
+      return;
+    }
+    const drawdownPct = ((value - peak) / peak) * 100;
+    if (!current) {
+      current = { startIndex: peakIndex, troughIndex: i, recoveryIndex: null, lengthPeriods: i - peakIndex, drawdownPct };
+    } else if (drawdownPct < current.drawdownPct) {
+      current.troughIndex = i;
+      current.drawdownPct = drawdownPct;
+      current.lengthPeriods = i - current.startIndex;
+    } else {
+      current.lengthPeriods = i - current.startIndex;
+    }
+  });
+  if (current) periods.push(current);
+  return periods.sort((a, b) => a.drawdownPct - b.drawdownPct).slice(0, 5);
+}
+
+function DrawdownPeriodsPanel({ monthlyReturnsPct }: { monthlyReturnsPct: number[] }) {
+  const periods = computeDrawdownPeriods(monthlyReturnsPct);
+  if (!periods.length) return null;
+  return (
+    <section className="tablePanel">
+      <h3>Worst drawdown periods</h3>
+      <div className="tableScroller">
+        <table>
+          <thead><tr><th>Rank</th><th>Start</th><th>Trough</th><th>Length</th><th>Recovery</th><th>Drawdown</th></tr></thead>
+          <tbody>
+            {periods.map((p, index) => (
+              <tr key={index}>
+                <td>{index + 1}</td>
+                <td>Period {p.startIndex + 1}</td>
+                <td>Period {p.troughIndex + 1}</td>
+                <td>{p.lengthPeriods} period{p.lengthPeriods === 1 ? "" : "s"}</td>
+                <td>{p.recoveryIndex !== null ? `Period ${p.recoveryIndex + 1}` : "Not recovered in series"}</td>
+                <td>{pct.format(p.drawdownPct)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="field-hint">Worst {periods.length} underwater periods in the synthetic return series (mock -- period numbers, not calendar dates).</p>
+    </section>
+  );
+}
+
 function PerformanceTab({ result }: { result: OptimizeResult }) {
   const rm = result.selectedRiskMeasure;
   return (
@@ -793,8 +939,10 @@ function PerformanceTab({ result }: { result: OptimizeResult }) {
           </div>
         </section>
       ) : null}
+      <TrailingReturnsPanel monthlyReturnsPct={result.monthlyReturnsPct} />
       <EquityCurveChart series={[{ label: "Optimized", returnsPct: result.monthlyReturnsPct, color: "#5b21d6" }]} title="Growth of 100 (optimized portfolio)" />
       <DrawdownChart returnsPct={result.monthlyReturnsPct} />
+      <DrawdownPeriodsPanel monthlyReturnsPct={result.monthlyReturnsPct} />
       <ReturnHistogram monthlyReturnsPct={result.monthlyReturnsPct} />
     </div>
   );
