@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Play, Plus, Trash2 } from "lucide-react";
+import { estimateEquilibriumReturns } from "../lib/mockOptimize";
 import type { SecFund } from "../types/backtest";
 import { ASSET_GROUP_IDS } from "../types/optimize";
 import type {
@@ -8,10 +9,12 @@ import type {
   BlackLittermanView,
   CompareAgainst,
   CovarianceMethod,
+  DataFrequency,
   ObjectiveGoal,
   OptimizeRequest,
   ReturnEstimationMethod,
   RiskMeasure,
+  TailConfidence,
   ViewConfidence,
   ViewType
 } from "../types/optimize";
@@ -33,12 +36,15 @@ interface Props {
 }
 
 // docs/mock-ui-spec.md 2a: scoped down from PV's full 15-goal list to what
-// riskfolio-lib supports and this project's decided scope.
+// riskfolio-lib supports and this project's decided scope. Min Volatility's
+// title/blurb spell out "at a target return" -- mathematically, argmin(sigma)
+// and argmin(sigma^2) are the same portfolio, so without a target return
+// this card would be indistinguishable from Minimize Variance (GMV).
 const OBJECTIVES: Array<{ id: ObjectiveGoal; title: string; blurb: string }> = [
   { id: "max_sharpe", title: "Maximize Sharpe Ratio", blurb: "Best risk-adjusted return across the shortlist." },
-  { id: "min_volatility", title: "Minimize Volatility", blurb: "Lowest-risk combination of the selected funds." },
+  { id: "min_volatility", title: "Minimize Volatility at a Target Return", blurb: "Lowest risk among mixes that hit the return you set." },
   { id: "max_return_target_vol", title: "Max Return, Target Volatility", blurb: "Highest return subject to a volatility ceiling you set." },
-  { id: "min_variance", title: "Minimize Variance (GMV)", blurb: "The global minimum-variance portfolio." },
+  { id: "min_variance", title: "Minimize Variance (GMV)", blurb: "The unconstrained global minimum-variance portfolio." },
   { id: "risk_parity", title: "Risk Parity", blurb: "Equalize each fund's contribution to total risk." },
   { id: "hrp", title: "Hierarchical Risk Parity", blurb: "Cluster-based allocation, no covariance inversion." },
   { id: "black_litterman", title: "Black-Litterman", blurb: "Blend market equilibrium with your own views." }
@@ -80,6 +86,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
   const isBlackLitterman = request.goal === "black_litterman";
   const isTargetVol = request.goal === "max_return_target_vol";
   const isMinVolatility = request.goal === "min_volatility";
+  const isTailRisk = request.riskMeasure === "cvar" || request.riskMeasure === "cdar";
   const selectedFunds = request.funds;
   const canRun = selectedFunds.length >= 2 && !loading;
 
@@ -164,8 +171,9 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
         <p>Choose what "optimal" means for this shortlist, then set constraints. Every field here maps to a documented method in <code>docs/optimization-assumptions.md</code>.</p>
       </div>
 
+      {/* 1. Data and time period */}
       <div className="card">
-        <div className="section-title">Time period</div>
+        <div className="section-title">Data and time period</div>
         <div className="range-presets">
           {RANGE_PRESETS.map((preset) => (
             <button className="btn btn-chip" key={preset.label} onClick={() => applyRangePreset(preset.years)} type="button">
@@ -198,67 +206,26 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
               value={request.timePeriod.endDate}
             />
           </div>
+          <div className="form-field">
+            <label htmlFor="dataFrequency">Data frequency</label>
+            <select
+              className="field"
+              id="dataFrequency"
+              onChange={(event) => patch({ dataFrequency: event.target.value as DataFrequency })}
+              value={request.dataFrequency}
+            >
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
         </div>
       </div>
 
+      {/* 2. Input estimation (mu, Sigma) */}
       <div className="card">
-        <div className="section-title">Objective</div>
-        <div className="obj-grid">
-          {OBJECTIVES.map((objective) => (
-            <button
-              className={request.goal === objective.id ? "obj-card selected" : "obj-card"}
-              key={objective.id}
-              onClick={() => setGoal(objective.id)}
-              type="button"
-            >
-              <h3>{objective.title}</h3>
-              <p className="q">{objective.blurb}</p>
-            </button>
-          ))}
-        </div>
-
-        <div className="section-title" style={{ marginTop: 20 }}>Risk measure</div>
+        <div className="section-title">Input estimation (expected return &amp; risk)</div>
         <div className="form-grid">
-          <div className="form-field">
-            <label htmlFor="riskMeasure">Risk measure</label>
-            <select
-              className="field"
-              id="riskMeasure"
-              onChange={(event) => patch({ riskMeasure: event.target.value as RiskMeasure })}
-              value={request.riskMeasure}
-            >
-              {RISK_MEASURES.map((measure) => (
-                <option key={measure.id} value={measure.id}>{measure.label}</option>
-              ))}
-            </select>
-          </div>
-          {isTargetVol ? (
-            <div className="form-field">
-              <label htmlFor="targetVol">Targeted annual volatility (%)</label>
-              <input
-                className="field num"
-                id="targetVol"
-                min={0.1}
-                onChange={(event) => patch({ targetAnnualVolatilityPct: Number(event.target.value) })}
-                step={0.1}
-                type="number"
-                value={request.targetAnnualVolatilityPct ?? 10}
-              />
-            </div>
-          ) : null}
-          {isMinVolatility ? (
-            <div className="form-field">
-              <label htmlFor="targetReturn">Targeted annual return (%)</label>
-              <input
-                className="field num"
-                id="targetReturn"
-                onChange={(event) => patch({ targetAnnualReturnPct: Number(event.target.value) })}
-                step={0.1}
-                type="number"
-                value={request.targetAnnualReturnPct ?? 6}
-              />
-            </div>
-          ) : null}
           <div className="form-field">
             <label htmlFor="returnMethod">Expected-return method</label>
             <select
@@ -332,18 +299,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
             >
               <option value="true">Yes</option>
               <option value="false">No</option>
-            </select>
-          </div>
-          <div className="form-field">
-            <label htmlFor="benchmark">Benchmark</label>
-            <select
-              className="field"
-              id="benchmark"
-              onChange={(event) => patch({ benchmarkProjId: event.target.value || null })}
-              value={request.benchmarkProjId ?? ""}
-            >
-              <option value="">None</option>
-              {selectedFunds.map((fund) => <option key={fund.proj_id} value={fund.proj_id}>{fund.display_name}</option>)}
             </select>
           </div>
         </div>
@@ -426,60 +381,96 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
         ) : null}
       </div>
 
-      {isBlackLitterman && request.blackLitterman ? (
-        <div className="card">
-          <div className="section-title">Black-Litterman inputs</div>
-          <div className="form-grid">
-            <div className="form-field">
-              <label htmlFor="riskAversion">Risk aversion (&delta;)</label>
-              <input className="field num" id="riskAversion" min={0.1} onChange={(event) => patchBl({ riskAversion: Number(event.target.value) })} step={0.1} type="number" value={request.blackLitterman.riskAversion} />
-            </div>
-            <div className="form-field">
-              <label htmlFor="tau">Tau (&tau;)</label>
-              <input className="field num" id="tau" max={1} min={0.01} onChange={(event) => patchBl({ tau: Number(event.target.value) })} step={0.01} type="number" value={request.blackLitterman.tau} />
-            </div>
-            <div className="form-field">
-              <label htmlFor="benchmarkReturn">Benchmark expected return (%)</label>
-              <input className="field num" id="benchmarkReturn" onChange={(event) => patchBl({ benchmarkExpectedReturnPct: Number(event.target.value) })} step={0.1} type="number" value={request.blackLitterman.benchmarkExpectedReturnPct} />
-            </div>
-          </div>
-
-          <div className="section-title" style={{ marginTop: 20 }}>Investor views</div>
-          <div className="holdings-table">
-            <div className="holdings-head" style={{ gridTemplateColumns: "1fr 140px 1fr 100px 110px 34px" }}>
-              <span>Asset 1</span><span>View type</span><span>Asset 2 (relative only)</span><span>Value (%)</span><span>Confidence</span><span />
-            </div>
-            {request.blackLitterman.views.map((view) => (
-              <div className="holdings-row" key={view.key} style={{ gridTemplateColumns: "1fr 140px 1fr 100px 110px 34px" }}>
-                <select className="field" onChange={(event) => updateView(view.key, { assetProjId1: event.target.value })} value={view.assetProjId1}>
-                  {selectedFunds.map((fund) => <option key={fund.proj_id} value={fund.proj_id}>{fund.display_name}</option>)}
-                </select>
-                <select className="field" onChange={(event) => updateView(view.key, { viewType: event.target.value as ViewType, assetProjId2: event.target.value === "relative" ? (selectedFunds[1]?.proj_id ?? null) : null })} value={view.viewType}>
-                  <option value="absolute">will return</option>
-                  <option value="relative">will outperform by</option>
-                </select>
-                {view.viewType === "relative" ? (
-                  <select className="field" onChange={(event) => updateView(view.key, { assetProjId2: event.target.value })} value={view.assetProjId2 ?? ""}>
-                    {selectedFunds.map((fund) => <option key={fund.proj_id} value={fund.proj_id}>{fund.display_name}</option>)}
-                  </select>
-                ) : <span className="field-static">&mdash;</span>}
-                <input className="field num" onChange={(event) => updateView(view.key, { adjustedPerformancePct: Number(event.target.value) })} step={0.1} type="number" value={view.adjustedPerformancePct} />
-                <select className="field" onChange={(event) => updateView(view.key, { confidence: Number(event.target.value) as ViewConfidence })} value={view.confidence}>
-                  <option value={100}>100%</option>
-                  <option value={75}>75%</option>
-                  <option value={50}>50%</option>
-                  <option value={25}>25%</option>
-                </select>
-                <button aria-label="Remove view" className="btn btn-ghost" onClick={() => removeView(view.key)} type="button"><Trash2 size={15} /></button>
-              </div>
-            ))}
-          </div>
-          <button className="btn btn-chip" onClick={addView} style={{ marginTop: 10 }} type="button">
-            <Plus size={14} /> Add view
-          </button>
+      {/* 3. Objective */}
+      <div className="card">
+        <div className="section-title">Objective</div>
+        <div className="obj-grid">
+          {OBJECTIVES.map((objective) => (
+            <button
+              className={request.goal === objective.id ? "obj-card selected" : "obj-card"}
+              key={objective.id}
+              onClick={() => setGoal(objective.id)}
+              type="button"
+            >
+              <h3>{objective.title}</h3>
+              <p className="q">{objective.blurb}</p>
+            </button>
+          ))}
         </div>
+
+        <div className="section-title" style={{ marginTop: 20 }}>Risk measure</div>
+        <div className="form-grid">
+          <div className="form-field">
+            <label htmlFor="riskMeasure">Risk measure</label>
+            <select
+              className="field"
+              id="riskMeasure"
+              onChange={(event) => patch({ riskMeasure: event.target.value as RiskMeasure })}
+              value={request.riskMeasure}
+            >
+              {RISK_MEASURES.map((measure) => (
+                <option key={measure.id} value={measure.id}>{measure.label}</option>
+              ))}
+            </select>
+          </div>
+          {isTailRisk ? (
+            <div className="form-field">
+              <label htmlFor="tailConfidence">Confidence level</label>
+              <select
+                className="field"
+                id="tailConfidence"
+                onChange={(event) => patch({ tailConfidence: Number(event.target.value) as TailConfidence })}
+                value={request.tailConfidence}
+              >
+                <option value={95}>95%</option>
+                <option value={97.5}>97.5%</option>
+                <option value={99}>99%</option>
+              </select>
+            </div>
+          ) : null}
+          {isTargetVol ? (
+            <div className="form-field">
+              <label htmlFor="targetVol">Targeted annual volatility (%)</label>
+              <input
+                className="field num"
+                id="targetVol"
+                min={0.1}
+                onChange={(event) => patch({ targetAnnualVolatilityPct: Number(event.target.value) })}
+                step={0.1}
+                type="number"
+                value={request.targetAnnualVolatilityPct ?? 10}
+              />
+            </div>
+          ) : null}
+          {isMinVolatility ? (
+            <div className="form-field">
+              <label htmlFor="targetReturn">Targeted annual return (%)</label>
+              <input
+                className="field num"
+                id="targetReturn"
+                onChange={(event) => patch({ targetAnnualReturnPct: Number(event.target.value) })}
+                step={0.1}
+                type="number"
+                value={request.targetAnnualReturnPct ?? 6}
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {isBlackLitterman && request.blackLitterman ? (
+        <BlackLittermanCard
+          bl={request.blackLitterman}
+          patchBl={patchBl}
+          request={request}
+          selectedFunds={selectedFunds}
+          onAddView={addView}
+          onRemoveView={removeView}
+          onUpdateView={updateView}
+        />
       ) : null}
 
+      {/* 4. Constraints */}
       <div className="card">
         <div className="section-title">Constraints</div>
         <div className="form-grid">
@@ -492,7 +483,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           </div>
           <div className="form-field">
             <label htmlFor="minWeight">Default min weight (%)</label>
-            <input className="field num" id="minWeight" min={0} onChange={(event) => patchConstraints({ minWeightPct: Number(event.target.value) })} step={0.5} type="number" value={request.constraints.minWeightPct} />
+            <input className="field num" id="minWeight" min={request.constraints.longOnly ? 0 : -100} onChange={(event) => patchConstraints({ minWeightPct: Number(event.target.value) })} step={0.5} type="number" value={request.constraints.minWeightPct} />
           </div>
           <div className="form-field">
             <label htmlFor="maxWeight">Default max weight (%)</label>
@@ -510,10 +501,22 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
             <input className="field num" id="maxHoldings" min={1} onChange={(event) => patchConstraints({ maxHoldings: Number(event.target.value) })} type="number" value={request.constraints.maxHoldings} />
           </div>
           <div className="form-field">
-            <label htmlFor="riskFreeRate">Risk-free rate (% / yr)</label>
-            <input className="field num" id="riskFreeRate" min={0} onChange={(event) => patchConstraints({ riskFreeRatePct: Number(event.target.value) })} step={0.1} type="number" value={request.constraints.riskFreeRatePct} />
+            <label htmlFor="maxTurnover">Max turnover per rebalance (%)</label>
+            <input
+              className="field num"
+              id="maxTurnover"
+              min={0}
+              onChange={(event) => patchConstraints({ maxTurnoverPct: event.target.value === "" ? null : Number(event.target.value) })}
+              placeholder="No limit"
+              step={1}
+              type="number"
+              value={request.constraints.maxTurnoverPct ?? ""}
+            />
           </div>
         </div>
+        {!request.constraints.longOnly ? (
+          <p className="field-hint">Long-only is off -- set a fund's Min % below 0 in the Portfolio step to permit a short position for that fund.</p>
+        ) : null}
 
         {request.constraints.groupConstraintsEnabled ? (
           <>
@@ -533,6 +536,44 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
             </div>
           </>
         ) : null}
+      </div>
+
+      {/* 5. Evaluation and comparison */}
+      <div className="card">
+        <div className="section-title">Evaluation &amp; comparison</div>
+        <div className="form-grid">
+          <div className="form-field">
+            <label htmlFor="riskFreeRate">Risk-free rate (% / yr)</label>
+            <input className="field num" id="riskFreeRate" min={0} onChange={(event) => patchConstraints({ riskFreeRatePct: Number(event.target.value) })} step={0.1} type="number" value={request.constraints.riskFreeRatePct} />
+          </div>
+          <div className="form-field">
+            <label htmlFor="benchmark">Benchmark</label>
+            <select
+              className="field"
+              id="benchmark"
+              onChange={(event) => patch({ benchmarkProjId: event.target.value || null })}
+              value={request.benchmarkProjId ?? ""}
+            >
+              <option value="">None</option>
+              {selectedFunds.map((fund) => <option key={fund.proj_id} value={fund.proj_id}>{fund.display_name}</option>)}
+            </select>
+          </div>
+          {request.benchmarkProjId ? (
+            <div className="form-field">
+              <label htmlFor="maxTrackingError">Max tracking error vs. benchmark (%)</label>
+              <input
+                className="field num"
+                id="maxTrackingError"
+                min={0}
+                onChange={(event) => patchConstraints({ maxTrackingErrorPct: event.target.value === "" ? null : Number(event.target.value) })}
+                placeholder="No limit"
+                step={0.5}
+                type="number"
+                value={request.constraints.maxTrackingErrorPct ?? ""}
+              />
+            </div>
+          ) : null}
+        </div>
 
         <div className={advancedOpen ? "advanced-toggle open" : "advanced-toggle"} onClick={() => setAdvancedOpen((open) => !open)}>
           <span className="chev">&#9654;</span> Rolling-window validation &amp; comparison
@@ -561,6 +602,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
               <label htmlFor="compareAgainst">Compared Allocation</label>
               <select className="field" id="compareAgainst" onChange={(event) => patchConstraints({ compareAgainst: event.target.value as CompareAgainst })} value={request.constraints.compareAgainst}>
                 <option value="none">None</option>
+                <option value="current">Your Current Portfolio</option>
                 <option value="equal_weighted">Equal Weighted</option>
                 <option value="max_sharpe">Max Sharpe Ratio Weights</option>
                 <option value="inverse_volatility">Inverse Volatility Weighted</option>
@@ -595,6 +637,98 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           <Play size={15} /> {loading ? "Optimizing" : "Run optimization"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// BL's own order of operations is Pi (equilibrium) -> views -> posterior.
+// A view like "fund A will outperform fund B" only means something once
+// you know what equilibrium already implies for A and B -- so this card
+// shows equilibrium returns FIRST, then the views table, instead of
+// letting the user set views blind and only see equilibrium afterward in
+// Results (which was backwards).
+function BlackLittermanCard({
+  bl,
+  request,
+  selectedFunds,
+  patchBl,
+  onAddView,
+  onUpdateView,
+  onRemoveView
+}: {
+  bl: NonNullable<OptimizeRequest["blackLitterman"]>;
+  request: OptimizeRequest;
+  selectedFunds: SecFund[];
+  patchBl: (next: Partial<OptimizeRequest["blackLitterman"]>) => void;
+  onAddView: () => void;
+  onUpdateView: (key: string, next: Partial<BlackLittermanView>) => void;
+  onRemoveView: (key: string) => void;
+}) {
+  const equilibrium = estimateEquilibriumReturns(request);
+  return (
+    <div className="card">
+      <div className="section-title">Black-Litterman inputs</div>
+      <div className="form-grid">
+        <div className="form-field">
+          <label htmlFor="riskAversion">Risk aversion (&delta;)</label>
+          <input className="field num" id="riskAversion" min={0.1} onChange={(event) => patchBl({ riskAversion: Number(event.target.value) })} step={0.1} type="number" value={bl.riskAversion} />
+        </div>
+        <div className="form-field">
+          <label htmlFor="tau">Tau (&tau;)</label>
+          <input className="field num" id="tau" max={1} min={0.01} onChange={(event) => patchBl({ tau: Number(event.target.value) })} step={0.01} type="number" value={bl.tau} />
+        </div>
+        <div className="form-field">
+          <label htmlFor="benchmarkReturn">Benchmark expected return (%)</label>
+          <input className="field num" id="benchmarkReturn" onChange={(event) => patchBl({ benchmarkExpectedReturnPct: Number(event.target.value) })} step={0.1} type="number" value={bl.benchmarkExpectedReturnPct} />
+        </div>
+      </div>
+
+      <div className="section-title" style={{ marginTop: 20 }}>1. Market equilibrium returns (&Pi;)</div>
+      <p className="field-hint">What the model already implies for each fund before any view is applied -- set your views below relative to these, not blind.</p>
+      <div className="tableScroller">
+        <table>
+          <thead><tr><th>Fund</th><th>Equilibrium return</th></tr></thead>
+          <tbody>
+            {selectedFunds.map((fund) => (
+              <tr key={fund.proj_id}><td>{fund.display_name}</td><td>{equilibrium[fund.proj_id] ?? 0}%</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="section-title" style={{ marginTop: 20 }}>2. Your views</div>
+      <div className="holdings-table">
+        <div className="holdings-head" style={{ gridTemplateColumns: "1fr 140px 1fr 100px 110px 34px" }}>
+          <span>Asset 1</span><span>View type</span><span>Asset 2 (relative only)</span><span>Value (%)</span><span>Confidence</span><span />
+        </div>
+        {bl.views.map((view) => (
+          <div className="holdings-row" key={view.key} style={{ gridTemplateColumns: "1fr 140px 1fr 100px 110px 34px" }}>
+            <select className="field" onChange={(event) => onUpdateView(view.key, { assetProjId1: event.target.value })} value={view.assetProjId1}>
+              {selectedFunds.map((fund) => <option key={fund.proj_id} value={fund.proj_id}>{fund.display_name}</option>)}
+            </select>
+            <select className="field" onChange={(event) => onUpdateView(view.key, { viewType: event.target.value as ViewType, assetProjId2: event.target.value === "relative" ? (selectedFunds[1]?.proj_id ?? null) : null })} value={view.viewType}>
+              <option value="absolute">will return</option>
+              <option value="relative">will outperform by</option>
+            </select>
+            {view.viewType === "relative" ? (
+              <select className="field" onChange={(event) => onUpdateView(view.key, { assetProjId2: event.target.value })} value={view.assetProjId2 ?? ""}>
+                {selectedFunds.map((fund) => <option key={fund.proj_id} value={fund.proj_id}>{fund.display_name}</option>)}
+              </select>
+            ) : <span className="field-static">&mdash;</span>}
+            <input className="field num" onChange={(event) => onUpdateView(view.key, { adjustedPerformancePct: Number(event.target.value) })} step={0.1} type="number" value={view.adjustedPerformancePct} />
+            <select className="field" onChange={(event) => onUpdateView(view.key, { confidence: Number(event.target.value) as ViewConfidence })} value={view.confidence}>
+              <option value={100}>100%</option>
+              <option value={75}>75%</option>
+              <option value={50}>50%</option>
+              <option value={25}>25%</option>
+            </select>
+            <button aria-label="Remove view" className="btn btn-ghost" onClick={() => onRemoveView(view.key)} type="button"><Trash2 size={15} /></button>
+          </div>
+        ))}
+      </div>
+      <button className="btn btn-chip" onClick={onAddView} style={{ marginTop: 10 }} type="button">
+        <Plus size={14} /> Add view
+      </button>
     </div>
   );
 }

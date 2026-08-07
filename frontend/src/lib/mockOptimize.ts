@@ -8,13 +8,16 @@
 import type { SecFund } from "../types/backtest";
 import type {
   AssetSummaryRow,
+  BindingConstraint,
   FeasibilityStatus,
+  FrontierMarker,
   FrontierPoint,
   OptimizeRequest,
   OptimizeResult,
   PerformanceSummaryColumn,
   RollingFold,
-  SelectedRiskMeasureResult
+  SelectedRiskMeasureResult,
+  TradeRow
 } from "../types/optimize";
 
 // Small deterministic PRNG (mulberry32) seeded from a string -- avoids a
@@ -45,8 +48,29 @@ function requestSeed(request: OptimizeRequest): string {
     request.targetAnnualReturnPct ?? "",
     request.robustOptimization,
     request.covarianceMethod,
-    request.benchmarkProjId ?? ""
+    request.benchmarkProjId ?? "",
+    request.tailConfidence,
+    request.dataFrequency
   ].join("|");
+}
+
+// Lets the Assumptions step show Black-Litterman's equilibrium returns
+// (Pi) BEFORE the user sets any views -- BL views are meaningless without
+// first seeing what the model already implies ("I think fund X will beat
+// what the market/equilibrium implies"), so the UI needs this preview
+// ahead of a full run, not only inside the eventual Results tab.
+export function estimateEquilibriumReturns(request: OptimizeRequest): Record<string, number> {
+  const rand = seededRandom(requestSeed(request));
+  const result: Record<string, number> = {};
+  for (const fund of request.funds) {
+    const equityish = /ตราสารทุน|ผสม/.test(fund.policy_desc);
+    const baseReturn = equityish ? 8 + rand() * 6 : 2 + rand() * 3;
+    const expectedReturnPct = !request.useHistoricalReturns && request.expectedReturnOverrides[fund.proj_id] !== undefined
+      ? request.expectedReturnOverrides[fund.proj_id]
+      : baseReturn;
+    result[fund.proj_id] = Number((expectedReturnPct * 0.8).toFixed(2));
+  }
+  return result;
 }
 
 export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
@@ -68,6 +92,12 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
       monthlyReturnsPct: [],
       selectedRiskMeasure: { measure: request.riskMeasure, label: "", optimizedValue: 0, comparedValue: null, unit: "pct" },
       benchmarkComparison: null,
+      tradeList: [],
+      totalTurnoverPct: 0,
+      bindingConstraints: [],
+      optimalPoint: { volatilityPct: 0, expectedReturnPct: 0, label: "Optimal" },
+      gmvPoint: null,
+      tangencyPoint: null,
       generatedAt: new Date().toISOString()
     };
   }
@@ -99,7 +129,7 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
   });
 
   const optimalWeights = applyGroupMaxClamp(allocateWeights(perAsset, request, rand), request);
-  const compareWeights = buildCompareWeights(perAsset, request.constraints.compareAgainst);
+  const compareWeights = buildCompareWeights(perAsset, request.constraints.compareAgainst, request.currentWeightPct);
   const riskContributionPct = deriveRiskContribution(perAsset, optimalWeights);
   const frontier = buildFrontier(perAsset, rand);
   const assetSummary = buildAssetSummary(perAsset, request);
@@ -109,13 +139,19 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
   const blackLitterman = request.goal === "black_litterman" && request.blackLitterman
     ? buildBlackLitterman(perAsset, request)
     : null;
-  const monthlyReturnsPct = buildMonthlyReturns(optimalWeights, perAsset, rand);
+  const periodsPerYr = periodsPerYear(request.dataFrequency);
+  const monthlyReturnsPct = buildMonthlyReturns(optimalWeights, perAsset, rand, periodsPerYr);
   const selectedRiskMeasure = buildSelectedRiskMeasure(
     request.riskMeasure,
+    request.tailConfidence,
     performanceSummary,
-    monthlyReturnsPct
+    monthlyReturnsPct,
+    periodsPerYr
   );
   const benchmarkComparison = buildBenchmarkComparison(perAsset, optimalWeights, request, rand);
+  const { tradeList, totalTurnoverPct } = buildTradeList(perAsset, optimalWeights, request);
+  const bindingConstraints = buildBindingConstraints(perAsset, optimalWeights, request);
+  const { optimalPoint, gmvPoint, tangencyPoint } = buildFrontierMarkers(frontier, performanceSummary[0]);
 
   return {
     feasibility: "ok",
@@ -135,7 +171,116 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
     monthlyReturnsPct,
     selectedRiskMeasure,
     benchmarkComparison,
+    tradeList,
+    totalTurnoverPct,
+    bindingConstraints,
+    optimalPoint,
+    gmvPoint,
+    tangencyPoint,
     generatedAt: new Date().toISOString()
+  };
+}
+
+// The single most actionable output: current (Step 1) weight vs. optimal
+// weight per fund, and the resulting one-way turnover -- Step 1 already
+// collects a "current" weight per fund but nothing downstream used it.
+function buildTradeList(
+  perAsset: { fund: SecFund }[],
+  optimalWeights: Record<string, number>,
+  request: OptimizeRequest
+): { tradeList: TradeRow[]; totalTurnoverPct: number } {
+  const hasCurrent = Object.values(request.currentWeightPct).some((w) => w > 0);
+  if (!hasCurrent) return { tradeList: [], totalTurnoverPct: 0 };
+
+  const rawDeltas = perAsset.map(({ fund }) => {
+    const current = request.currentWeightPct[fund.proj_id] ?? 0;
+    const optimal = optimalWeights[fund.proj_id] ?? 0;
+    return { fund, current, optimal, delta: optimal - current };
+  });
+  const rawTurnover = rawDeltas.reduce((sum, d) => sum + Math.abs(d.delta), 0) / 2;
+
+  // If Constraints' Max turnover caps below what the full rebalance needs,
+  // scale every delta back proportionally toward the current weights --
+  // this only affects the trade list's displayed targets, not
+  // optimalWeights used elsewhere in the result (a full simultaneous
+  // turnover-constrained solve is out of scope for a Phase 4 mock; Phase
+  // 5's real optimizer would enforce this as a solver constraint, not a
+  // post-hoc scale-back).
+  const cap = request.constraints.maxTurnoverPct;
+  const scale = cap !== null && rawTurnover > cap && rawTurnover > 0 ? cap / rawTurnover : 1;
+
+  const rows: TradeRow[] = rawDeltas.map(({ fund, current, delta }) => {
+    const currentWeightPct = Number(current.toFixed(2));
+    const optimalWeightPct = Number((current + delta * scale).toFixed(2));
+    const deltaPct = Number((optimalWeightPct - currentWeightPct).toFixed(2));
+    const action: TradeRow["action"] = deltaPct > 0.05 ? "buy" : deltaPct < -0.05 ? "sell" : "hold";
+    return { projId: fund.proj_id, displayName: fund.display_name, currentWeightPct, optimalWeightPct, deltaPct, action };
+  });
+  // One-way turnover = half the sum of absolute weight changes (standard
+  // convention -- a buy on one side is funded by a sell on the other, so
+  // summing |delta| unhalved would double-count the same rebalance).
+  const totalTurnoverPct = Number((rows.reduce((sum, r) => sum + Math.abs(r.deltaPct), 0) / 2).toFixed(2));
+  return { tradeList: rows, totalTurnoverPct };
+}
+
+// Which constraint(s) are actually load-bearing for this particular
+// solution -- distinct from just listing what's set in Assumptions, this
+// checks which bounds the solver actually hit.
+function buildBindingConstraints(
+  perAsset: { fund: SecFund }[],
+  optimalWeights: Record<string, number>,
+  request: OptimizeRequest
+): BindingConstraint[] {
+  const binding: BindingConstraint[] = [];
+  for (const { fund } of perAsset) {
+    const bound = request.fundBounds[fund.proj_id];
+    const min = bound?.minWeightPct ?? request.constraints.minWeightPct;
+    const max = bound?.maxWeightPct ?? request.constraints.maxWeightPct;
+    const w = optimalWeights[fund.proj_id] ?? 0;
+    if (max < 100 && Math.abs(w - max) < 0.05) {
+      binding.push({ label: `${fund.display_name}: max weight`, detail: `Capped at ${max}% -- would hold more if allowed.` });
+    }
+    if (min > 0 && Math.abs(w - min) < 0.05) {
+      binding.push({ label: `${fund.display_name}: min weight`, detail: `Floored at ${min}% -- would hold less if allowed.` });
+    }
+  }
+  if (request.constraints.groupConstraintsEnabled) {
+    for (const id of Object.keys(request.assetGroups) as (keyof typeof request.assetGroups)[]) {
+      const group = request.assetGroups[id];
+      const memberIds = request.funds.filter((f) => request.fundGroups[f.proj_id] === id).map((f) => f.proj_id);
+      if (!memberIds.length) continue;
+      const total = memberIds.reduce((sum, projId) => sum + (optimalWeights[projId] ?? 0), 0);
+      if (group.maxWeightPct < 100 && Math.abs(total - group.maxWeightPct) < 0.5) {
+        binding.push({ label: `Group ${id}${group.name ? ` (${group.name})` : ""}: max weight`, detail: `Group capped at ${group.maxWeightPct}%.` });
+      }
+    }
+  }
+  if (request.constraints.maxTurnoverPct !== null) {
+    binding.push({ label: "Max turnover", detail: `Capped at ${request.constraints.maxTurnoverPct}% one-way turnover per rebalance.` });
+  }
+  return binding;
+}
+
+// Marks the frontier chart needs to be decision-useful: this run's own
+// point, the global-minimum-variance point (leftmost), and the max-Sharpe
+// / tangency point -- a frontier line with nothing plotted on it doesn't
+// tell the user where their own result actually sits.
+function buildFrontierMarkers(
+  frontier: FrontierPoint[],
+  optimizedColumn: PerformanceSummaryColumn | undefined
+): { optimalPoint: FrontierMarker; gmvPoint: FrontierMarker | null; tangencyPoint: FrontierMarker | null } {
+  const optimalPoint: FrontierMarker = {
+    volatilityPct: optimizedColumn?.stdDevPct ?? 0,
+    expectedReturnPct: optimizedColumn?.expectedReturnPct ?? 0,
+    label: "Your optimal portfolio"
+  };
+  if (!frontier.length) return { optimalPoint, gmvPoint: null, tangencyPoint: null };
+  const gmv = frontier.reduce((min, p) => (p.volatilityPct < min.volatilityPct ? p : min), frontier[0]);
+  const tangency = frontier.reduce((max, p) => (p.sharpe > max.sharpe ? p : max), frontier[0]);
+  return {
+    optimalPoint,
+    gmvPoint: { volatilityPct: gmv.volatilityPct, expectedReturnPct: gmv.expectedReturnPct, label: "Global minimum variance" },
+    tangencyPoint: { volatilityPct: tangency.volatilityPct, expectedReturnPct: tangency.expectedReturnPct, label: "Max Sharpe (tangency)" }
   };
 }
 
@@ -167,20 +312,30 @@ function buildBenchmarkComparison(
 // distribution of the optimized portfolio's own returns. Box-Muller turns
 // the module's uniform PRNG into an approximately normal series so the
 // histogram looks like a real return distribution, not noise.
+// riskfolio-lib's annualization/de-annualization always keys off the
+// periodicity of the return series it's fed -- Assumptions' "Data
+// frequency" field (daily/weekly/monthly) previously had no effect
+// anywhere in the mock, so every risk figure was implicitly annualized as
+// if monthly data was used no matter what the user picked.
+function periodsPerYear(frequency: OptimizeRequest["dataFrequency"]): number {
+  return frequency === "daily" ? 252 : frequency === "weekly" ? 52 : 12;
+}
+
 function buildMonthlyReturns(
   weights: Record<string, number>,
   perAsset: { fund: SecFund; expectedReturnPct: number; volatilityPct: number }[],
   rand: () => number,
-  months = 36
+  periodsPerYr: number,
+  periods = 36
 ): number[] {
   const expectedReturn = perAsset.reduce((sum, a) => sum + ((weights[a.fund.proj_id] ?? 0) / 100) * a.expectedReturnPct, 0);
   const stdDev = Math.sqrt(
     perAsset.reduce((sum, a) => sum + Math.pow(((weights[a.fund.proj_id] ?? 0) / 100) * a.volatilityPct, 2), 0)
   );
-  const monthlyMean = expectedReturn / 12;
-  const monthlyStd = stdDev / Math.sqrt(12);
+  const monthlyMean = expectedReturn / periodsPerYr;
+  const monthlyStd = stdDev / Math.sqrt(periodsPerYr);
   const series: number[] = [];
-  for (let i = 0; i < months; i++) {
+  for (let i = 0; i < periods; i++) {
     const u1 = Math.max(rand(), 1e-6);
     const u2 = rand();
     const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
@@ -195,8 +350,10 @@ function buildMonthlyReturns(
 // so picking CDaR as the objective's risk measure had no visible result.
 function buildSelectedRiskMeasure(
   measure: OptimizeRequest["riskMeasure"],
+  tailConfidence: OptimizeRequest["tailConfidence"],
   performanceSummary: PerformanceSummaryColumn[],
-  monthlyReturnsPct: number[]
+  monthlyReturnsPct: number[],
+  periodsPerYr: number
 ): SelectedRiskMeasureResult {
   const optimizedColumn = performanceSummary[0];
   const comparedColumn = performanceSummary[1] ?? null;
@@ -205,10 +362,12 @@ function buildSelectedRiskMeasure(
     const mean = returns.reduce((a, b) => a + b, 0) / (returns.length || 1);
     const downside = returns.filter((r) => r < mean).map((r) => Math.pow(r - mean, 2));
     const variance = downside.reduce((a, b) => a + b, 0) / (returns.length || 1);
-    return Math.sqrt(variance) * Math.sqrt(12); // annualized, same convention as stdDevPct
+    return Math.sqrt(variance) * Math.sqrt(periodsPerYr); // annualized, same convention as stdDevPct
   }
 
-  function conditionalValueAtRisk(returns: number[], alpha = 0.05): number {
+  // alpha is the tail confidence's complement -- riskfolio-lib takes alpha
+  // directly as a required CVaR/CDaR parameter, not a hardcoded 5%.
+  function conditionalValueAtRisk(returns: number[], alpha: number): number {
     if (!returns.length) return 0;
     const sorted = [...returns].sort((a, b) => a - b);
     const cutoff = Math.max(1, Math.round(sorted.length * alpha));
@@ -216,15 +375,17 @@ function buildSelectedRiskMeasure(
     return tail.reduce((a, b) => a + b, 0) / tail.length; // mean of the worst alpha% months, monthly %
   }
 
+  const alpha = (100 - tailConfidence) / 100;
+
   switch (measure) {
     case "std_dev":
       return { measure, label: "Standard Deviation", optimizedValue: optimizedColumn?.stdDevPct ?? 0, comparedValue: comparedColumn?.stdDevPct ?? null, unit: "pct" };
     case "semi_variance":
       return { measure, label: "Semi-Deviation", optimizedValue: Number(semiDeviation(monthlyReturnsPct).toFixed(2)), comparedValue: null, unit: "pct" };
     case "cvar":
-      return { measure, label: "CVaR (95%, monthly)", optimizedValue: Number(conditionalValueAtRisk(monthlyReturnsPct).toFixed(2)), comparedValue: null, unit: "pct" };
+      return { measure, label: `CVaR (${tailConfidence}%, monthly)`, optimizedValue: Number(conditionalValueAtRisk(monthlyReturnsPct, alpha).toFixed(2)), comparedValue: null, unit: "pct" };
     case "cdar":
-      return { measure, label: "CDaR (proxied by Max Drawdown)", optimizedValue: optimizedColumn?.maxDrawdownPct ?? 0, comparedValue: comparedColumn?.maxDrawdownPct ?? null, unit: "pct" };
+      return { measure, label: `CDaR (${tailConfidence}%, proxied by Max Drawdown)`, optimizedValue: optimizedColumn?.maxDrawdownPct ?? 0, comparedValue: comparedColumn?.maxDrawdownPct ?? null, unit: "pct" };
   }
 }
 
@@ -251,6 +412,16 @@ function evaluateFeasibility(request: OptimizeRequest): { status: FeasibilitySta
     return {
       status: "infeasible_constraints",
       message: `The selected funds' minimum weights add up to ${totalMinWeight.toFixed(1)}%, more than 100% total allocation. Lower one or more minimums (Step 1) or add more funds.`
+    };
+  }
+  const totalMaxWeight = request.funds.reduce(
+    (sum, fund) => sum + (request.fundBounds[fund.proj_id]?.maxWeightPct ?? request.constraints.maxWeightPct),
+    0
+  );
+  if (totalMaxWeight < 100) {
+    return {
+      status: "infeasible_constraints",
+      message: `The selected funds' maximum weights add up to only ${totalMaxWeight.toFixed(1)}%, less than 100% total allocation -- no combination can reach full investment. Raise one or more maximums (Step 1 or Constraints) or add more funds.`
     };
   }
   if (request.constraints.maxHoldings > 0 && request.constraints.maxHoldings < request.funds.length && totalMinWeight > 0) {
@@ -407,9 +578,17 @@ function clampAndRenormalize(raw: Record<string, number>, bounds: Record<string,
 
 function buildCompareWeights(
   perAsset: { fund: SecFund; expectedReturnPct: number; volatilityPct: number }[],
-  compareAgainst: OptimizeRequest["constraints"]["compareAgainst"]
+  compareAgainst: OptimizeRequest["constraints"]["compareAgainst"],
+  currentWeightPct: Record<string, number>
 ): Record<string, number> | null {
   if (compareAgainst === "none") return null;
+  if (compareAgainst === "current") {
+    const hasCurrent = perAsset.some(({ fund }) => (currentWeightPct[fund.proj_id] ?? 0) > 0);
+    if (!hasCurrent) return null;
+    const result: Record<string, number> = {};
+    for (const { fund } of perAsset) result[fund.proj_id] = Number((currentWeightPct[fund.proj_id] ?? 0).toFixed(2));
+    return result;
+  }
   if (compareAgainst === "equal_weighted") {
     const weight = Number((100 / perAsset.length).toFixed(2));
     const result: Record<string, number> = {};
@@ -561,6 +740,7 @@ function buildPerformanceSummary(
     const label = request.constraints.compareAgainst === "equal_weighted" ? "Equal Weighted"
       : request.constraints.compareAgainst === "inverse_volatility" ? "Inverse Volatility"
       : request.constraints.compareAgainst === "max_sharpe" ? "Max Sharpe Ratio Weights"
+      : request.constraints.compareAgainst === "current" ? "Your Current Portfolio"
       : "Risk Parity Weighted";
     columns.push(columnFor(compareWeights, label));
   }

@@ -250,6 +250,21 @@ function SummaryTab({ result, nameOf, compareLabel, setActiveTab }: { result: Op
         <RiskContributionBars nameOf={nameOf} riskContributionPct={result.riskContributionPct} />
       </section>
       <ResultChecklist compareLabel={compareLabel} result={result} />
+      {result.bindingConstraints.length ? (
+        <section className="tablePanel">
+          <h3>What's actually constraining this result</h3>
+          <p className="field-hint">Which limits the solver actually hit -- distinct from what's merely set in Assumptions. Loosening one of these would change the result; the rest are slack.</p>
+          <div className="tableScroller">
+            <table>
+              <tbody>
+                {result.bindingConstraints.map((b) => (
+                  <tr key={b.label}><td><b>{b.label}</b></td><td>{b.detail}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
       {compareLabel ? (
         <p className="field-hint">Compared against <b>{compareLabel}</b> in the Weights and Performance tabs.</p>
       ) : null}
@@ -316,8 +331,9 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
   const width = 640;
   const height = 320;
   const padding = 40;
-  const vols = result.frontier.map((p) => p.volatilityPct);
-  const rets = result.frontier.map((p) => p.expectedReturnPct);
+  const markers = [result.optimalPoint, result.gmvPoint, result.tangencyPoint].filter((m): m is NonNullable<typeof m> => Boolean(m));
+  const vols = [...result.frontier.map((p) => p.volatilityPct), ...markers.map((m) => m.volatilityPct)];
+  const rets = [...result.frontier.map((p) => p.expectedReturnPct), ...markers.map((m) => m.expectedReturnPct)];
   const minVol = Math.min(...vols);
   const maxVol = Math.max(...vols);
   const minRet = Math.min(...rets);
@@ -325,6 +341,11 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
   const x = (v: number) => padding + ((v - minVol) / (maxVol - minVol || 1)) * (width - padding * 2);
   const y = (r: number) => height - padding - ((r - minRet) / (maxRet - minRet || 1)) * (height - padding * 2);
   const path = result.frontier.map((p, i) => `${i === 0 ? "M" : "L"} ${x(p.volatilityPct)} ${y(p.expectedReturnPct)}`).join(" ");
+  const markerColors: Record<string, string> = {
+    "Your optimal portfolio": "#5b21d6",
+    "Global minimum variance": "#0ea5e9",
+    "Max Sharpe (tangency)": "#92620a"
+  };
 
   return (
     <div className="tabStack">
@@ -335,9 +356,20 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
             <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
             <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
             <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} />
+            {markers.map((m) => (
+              <circle cx={x(m.volatilityPct)} cy={y(m.expectedReturnPct)} fill={markerColors[m.label] ?? "var(--text)"} key={m.label} r={5} stroke="var(--bg)" strokeWidth={2} />
+            ))}
             <text className="axisText" x={width / 2} y={height - 8}>Volatility (%)</text>
             <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Expected return (%)</text>
           </svg>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
+          {markers.map((m) => (
+            <div key={m.label} style={{ alignItems: "center", display: "flex", fontSize: 12.5, gap: 6 }}>
+              <span style={{ background: markerColors[m.label] ?? "var(--text)", borderRadius: "50%", display: "inline-block", height: 10, width: 10 }} />
+              {m.label} ({pct.format(m.volatilityPct)}% vol, {pct.format(m.expectedReturnPct)}% return)
+            </div>
+          ))}
         </div>
         <p className="field-hint">Mock frontier -- Phase 5 replaces this with riskfolio-lib's real efficient_frontier() output.</p>
       </section>
@@ -558,10 +590,44 @@ function StaticPie({ weights, nameOf }: { weights: Record<string, number>; nameO
   );
 }
 
+// The single most actionable output: what to actually buy/sell/hold to go
+// from the Step 1 "current" weights to the optimized target, and the
+// resulting turnover -- previously Step 1's own weight column was
+// collected but never used anywhere downstream.
+function TradeListPanel({ result }: { result: OptimizeResult }) {
+  if (!result.tradeList.length) return null;
+  const actionLabel: Record<OptimizeResult["tradeList"][number]["action"], string> = { buy: "Buy", sell: "Sell", hold: "Hold" };
+  return (
+    <section className="tablePanel">
+      <div className="panelHeader">
+        <h3>Trade list -- current vs. optimal</h3>
+        <span className="pill">{pct.format(result.totalTurnoverPct)}% one-way turnover</span>
+      </div>
+      <div className="tableScroller">
+        <table>
+          <thead><tr><th>Fund</th><th>Current</th><th>Optimal</th><th>Change</th><th>Action</th></tr></thead>
+          <tbody>
+            {result.tradeList.map((row) => (
+              <tr key={row.projId}>
+                <td>{row.displayName}</td>
+                <td>{pct.format(row.currentWeightPct)}%</td>
+                <td>{pct.format(row.optimalWeightPct)}%</td>
+                <td>{row.deltaPct >= 0 ? "+" : ""}{pct.format(row.deltaPct)}%</td>
+                <td><span className={row.action === "buy" ? "pill ok" : row.action === "sell" ? "pill warn" : "pill"}>{actionLabel[row.action]}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function WeightsTab({ result, nameOf, compareLabel }: { result: OptimizeResult; nameOf: (id: string) => string; compareLabel: string | null }) {
   const ids = Object.keys(result.optimalWeights);
   return (
     <div className="tabStack">
+      <TradeListPanel result={result} />
       <section className="panelGrid">
         <div className="chartPanel">
           <h3>Optimized</h3>

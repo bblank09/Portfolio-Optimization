@@ -15,7 +15,8 @@ const COMPARE_LABELS: Record<OptimizeRequest["constraints"]["compareAgainst"], s
   equal_weighted: "Equal Weighted",
   max_sharpe: "Max Sharpe Ratio Weights",
   inverse_volatility: "Inverse Volatility Weighted",
-  risk_parity: "Risk Parity Weighted"
+  risk_parity: "Risk Parity Weighted",
+  current: "Your Current Portfolio"
 };
 
 function defaultAssetGroups(): Record<AssetGroupId, AssetGroup> {
@@ -30,11 +31,14 @@ function defaultAssetGroups(): Record<AssetGroupId, AssetGroup> {
 const initialRequest: OptimizeRequest = {
   funds: [],
   fundBounds: {},
+  currentWeightPct: {},
   fundGroups: {},
   assetGroups: defaultAssetGroups(),
   timePeriod: { startDate: "2020-01-31", endDate: "2026-07-31" },
+  dataFrequency: "monthly",
   goal: "max_sharpe",
   riskMeasure: "std_dev",
+  tailConfidence: 95,
   targetAnnualVolatilityPct: 10,
   targetAnnualReturnPct: 6,
   robustOptimization: false,
@@ -57,7 +61,9 @@ const initialRequest: OptimizeRequest = {
     lookbackPeriodMonths: 36,
     optimizationFrequency: "quarterly",
     riskFreeRatePct: 1.5,
-    compareAgainst: "equal_weighted"
+    compareAgainst: "equal_weighted",
+    maxTurnoverPct: null,
+    maxTrackingErrorPct: null
   }
 };
 
@@ -185,14 +191,23 @@ export function OptimizeWorkspace() {
       .filter((f): f is SecFund => Boolean(f));
     const fundBounds: OptimizeRequest["fundBounds"] = {};
     const fundGroups: OptimizeRequest["fundGroups"] = {};
+    const currentWeightPct: OptimizeRequest["currentWeightPct"] = {};
     for (const asset of assets) {
-      fundBounds[asset.proj_id] = {
-        minWeightPct: asset.min_weight_pct ?? 0,
-        maxWeightPct: asset.max_weight_pct ?? 100
-      };
+      // Only record a per-fund override when it actually differs from Step
+      // 1's row default (0/100) -- otherwise every fund silently carries an
+      // explicit 0/100 bound that always wins over Constraints' "Default
+      // min/max weight" fields (allocateWeights prefers fundBounds when
+      // present), making that Assumptions field dead even when the user
+      // never touched Step 1's Min/Max columns at all.
+      const min = asset.min_weight_pct ?? 0;
+      const max = asset.max_weight_pct ?? 100;
+      if (min !== 0 || max !== 100) {
+        fundBounds[asset.proj_id] = { minWeightPct: min, maxWeightPct: max };
+      }
       fundGroups[asset.proj_id] = (asset.group as OptimizeRequest["fundGroups"][string]) ?? "None";
+      currentWeightPct[asset.proj_id] = asset.weight ?? 0;
     }
-    setRequest((current) => ({ ...current, funds: chosen, fundBounds, fundGroups }));
+    setRequest((current) => ({ ...current, funds: chosen, fundBounds, fundGroups, currentWeightPct }));
   }
 
   function updateRequest(next: OptimizeRequest) {
@@ -261,6 +276,7 @@ export function OptimizeWorkspace() {
       <div className="main">
         <PortfolioStep
           active={currentStep === 0}
+          allowShort={!request.constraints.longOnly}
           funds={funds}
           onAssetsChange={handleAssetsChange}
           onContinue={() => advanceTo(1)}

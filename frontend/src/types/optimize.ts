@@ -22,7 +22,13 @@ export type ReturnEstimationMethod = "historical_mean" | "capm_implied" | "black
 
 export type CovarianceMethod = "sample" | "shrinkage" | "ewma";
 
-export type CompareAgainst = "none" | "equal_weighted" | "max_sharpe" | "inverse_volatility" | "risk_parity";
+export type CompareAgainst = "none" | "equal_weighted" | "max_sharpe" | "inverse_volatility" | "risk_parity" | "current";
+
+// riskfolio-lib exposes alpha as an explicit parameter for CVaR/CDaR --
+// a tail-risk measure without a stated confidence level isn't well-defined.
+export type TailConfidence = 95 | 97.5 | 99;
+
+export type DataFrequency = "daily" | "weekly" | "monthly";
 
 export type ViewType = "absolute" | "relative";
 
@@ -56,9 +62,20 @@ export interface OptimizeConstraints {
   optimizationFrequency: "monthly" | "quarterly" | "annually";
   riskFreeRatePct: number;
   compareAgainst: CompareAgainst;
+  // Caps one-way turnover vs. the Step 1 "current" weights on every
+  // rebalance -- without this a rolling optimizer that re-solves every
+  // period will systematically overstate net-of-cost performance.
+  // null = unconstrained.
+  maxTurnoverPct: number | null;
+  // Only meaningful when a benchmark is set (see OptimizeRequest.benchmarkProjId)
+  // -- caps how far the optimized weights can drift from the benchmark's
+  // own risk, distinct from targeting the benchmark's return. null = unconstrained.
+  maxTrackingErrorPct: number | null;
 }
 
 export interface FundBound {
+  // Can go negative only when constraints.longOnly is false -- a negative
+  // minWeightPct represents a permitted short position for that fund.
   minWeightPct: number;
   maxWeightPct: number;
 }
@@ -91,13 +108,21 @@ export interface OptimizeRequest {
   // step). Falls back to constraints.minWeightPct/maxWeightPct for any
   // fund without an entry here.
   fundBounds: Record<string, FundBound>;
+  // The Step 1 "current" weight per fund (weightsOptional, so this can be
+  // all-zero) -- the only source for the trade list's currentWeightPct and
+  // the "current" CompareAgainst option.
+  currentWeightPct: Record<string, number>;
   // Per-fund group assignment (Step 1), only meaningful when
   // constraints.groupConstraintsEnabled is true. "None" = ungrouped.
   fundGroups: Record<string, AssetGroupId | "None">;
   assetGroups: Record<AssetGroupId, AssetGroup>;
   timePeriod: TimePeriod;
+  dataFrequency: DataFrequency;
   goal: ObjectiveGoal;
   riskMeasure: RiskMeasure;
+  // Only meaningful when riskMeasure is cvar or cdar -- an unstated
+  // confidence level makes a tail-risk measure undefined.
+  tailConfidence: TailConfidence;
   targetAnnualVolatilityPct: number | null; // only used with max_return_target_vol
   // Only used with min_volatility -- pins that objective to a target return
   // instead of collapsing to the same unconstrained minimum as min_variance.
@@ -165,6 +190,32 @@ export interface RollingFold {
 
 export type FeasibilityStatus = "ok" | "non_convergence" | "infeasible_constraints" | "insufficient_data";
 
+// The single most actionable output for a real user: "what do I actually
+// do" -- current holdings (from Step 1's own weight column) vs. the
+// optimized target, and the resulting one-way turnover.
+export interface TradeRow {
+  projId: string;
+  displayName: string;
+  currentWeightPct: number;
+  optimalWeightPct: number;
+  deltaPct: number; // optimalWeightPct - currentWeightPct
+  action: "buy" | "sell" | "hold";
+}
+
+// Which constraint(s) are actually pinning the solution -- distinct from
+// merely listing the constraints set in Assumptions, this says which ones
+// are load-bearing for this particular result.
+export interface BindingConstraint {
+  label: string;
+  detail: string;
+}
+
+export interface FrontierMarker {
+  volatilityPct: number;
+  expectedReturnPct: number;
+  label: string;
+}
+
 export interface SelectedRiskMeasureResult {
   measure: RiskMeasure;
   label: string;
@@ -197,5 +248,15 @@ export interface OptimizeResult {
   selectedRiskMeasure: SelectedRiskMeasureResult;
   // Set only when request.benchmarkProjId is a fund in the shortlist.
   benchmarkComparison: { projId: string; displayName: string; trackingErrorPct: number; excessReturnPct: number } | null;
+  // Current (Step 1) weights vs. optimal, and the resulting turnover --
+  // empty when no fund in the shortlist has a nonzero Step 1 weight.
+  tradeList: TradeRow[];
+  totalTurnoverPct: number;
+  bindingConstraints: BindingConstraint[];
+  // Marks on the efficient frontier chart: this run's own optimal point,
+  // the global-minimum-variance point, and the max-Sharpe (tangency) point.
+  optimalPoint: FrontierMarker;
+  gmvPoint: FrontierMarker | null;
+  tangencyPoint: FrontierMarker | null;
   generatedAt: string; // ISO timestamp, for the Report tab's run metadata line
 }

@@ -91,6 +91,11 @@ interface Props {
   // Default false. OptimizeWorkspace passes request.constraints.groupConstraintsEnabled
   // (dynamic -- set from Step 2, then reflected here if the user goes back).
   showGroupAssignment?: boolean;
+  // Default false. OptimizeWorkspace passes !request.constraints.longOnly --
+  // when true, the Min % input's floor is relaxed below 0 so a fund can
+  // carry a permitted short position; when longOnly is (re)enabled the
+  // floor snaps back to 0 without touching the value itself.
+  allowShort?: boolean;
 }
 
 const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
@@ -101,7 +106,7 @@ function nextKey() {
   return `row-${rowSeq}`;
 }
 
-export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weightsOptional = false, showWeightBounds = false, showGroupAssignment = false }: Props) {
+export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weightsOptional = false, showWeightBounds = false, showGroupAssignment = false, allowShort = false }: Props) {
   const [rows, setRows] = useState<Row[]>([{ key: nextKey(), projId: "", weight: 0, query: "", minWeight: 0, maxWeight: 100, group: "None" }]);
   const [amcFilter, setAmcFilter] = useState<Set<string>>(new Set());
   const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
@@ -316,6 +321,7 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
               onWeightChange={(weight) => setWeight(row.key, weight)}
               onRemove={() => removeRow(row.key)}
               showWeightBounds={showWeightBounds}
+              allowShort={allowShort}
               onMinWeightChange={(minWeight) => setMinWeight(row.key, minWeight)}
               onMaxWeightChange={(maxWeight) => setMaxWeight(row.key, maxWeight)}
               showGroupAssignment={showGroupAssignment}
@@ -374,6 +380,7 @@ function HoldingsRow({
   onWeightChange,
   onRemove,
   showWeightBounds,
+  allowShort,
   onMinWeightChange,
   onMaxWeightChange,
   showGroupAssignment,
@@ -396,6 +403,7 @@ function HoldingsRow({
   onWeightChange: (weight: number) => void;
   onRemove: () => void;
   showWeightBounds?: boolean;
+  allowShort?: boolean;
   onMinWeightChange?: (minWeight: number) => void;
   onMaxWeightChange?: (maxWeight: number) => void;
   showGroupAssignment?: boolean;
@@ -537,7 +545,7 @@ function HoldingsRow({
           aria-label="Minimum weight for this fund"
           className="field num min-weight-input"
           type="number"
-          min={0}
+          min={allowShort ? -100 : 0}
           max={100}
           value={row.minWeight}
           onChange={(event) => onMinWeightChange?.(Number(event.target.value))}
