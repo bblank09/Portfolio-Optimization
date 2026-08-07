@@ -13,7 +13,8 @@ import type {
   OptimizeRequest,
   OptimizeResult,
   PerformanceSummaryColumn,
-  RollingFold
+  RollingFold,
+  SelectedRiskMeasureResult
 } from "../types/optimize";
 
 // Small deterministic PRNG (mulberry32) seeded from a string -- avoids a
@@ -61,7 +62,9 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
       correlations: [],
       performanceSummary: [],
       rolling: [],
-      blackLitterman: null
+      blackLitterman: null,
+      monthlyReturnsPct: [],
+      selectedRiskMeasure: { measure: request.riskMeasure, label: "", optimizedValue: 0, comparedValue: null, unit: "pct" }
     };
   }
 
@@ -95,6 +98,12 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
   const blackLitterman = request.goal === "black_litterman" && request.blackLitterman
     ? buildBlackLitterman(perAsset, request)
     : null;
+  const monthlyReturnsPct = buildMonthlyReturns(optimalWeights, perAsset, rand);
+  const selectedRiskMeasure = buildSelectedRiskMeasure(
+    request.riskMeasure,
+    performanceSummary,
+    monthlyReturnsPct
+  );
 
   return {
     feasibility: "ok",
@@ -110,8 +119,76 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
     correlations,
     performanceSummary,
     rolling,
-    blackLitterman
+    blackLitterman,
+    monthlyReturnsPct,
+    selectedRiskMeasure
   };
+}
+
+// riskfolio-lib's own jupyter_report() ships a returns histogram alongside
+// weight/risk-contribution charts -- this project had nothing showing the
+// distribution of the optimized portfolio's own returns. Box-Muller turns
+// the module's uniform PRNG into an approximately normal series so the
+// histogram looks like a real return distribution, not noise.
+function buildMonthlyReturns(
+  weights: Record<string, number>,
+  perAsset: { fund: SecFund; expectedReturnPct: number; volatilityPct: number }[],
+  rand: () => number,
+  months = 36
+): number[] {
+  const expectedReturn = perAsset.reduce((sum, a) => sum + ((weights[a.fund.proj_id] ?? 0) / 100) * a.expectedReturnPct, 0);
+  const stdDev = Math.sqrt(
+    perAsset.reduce((sum, a) => sum + Math.pow(((weights[a.fund.proj_id] ?? 0) / 100) * a.volatilityPct, 2), 0)
+  );
+  const monthlyMean = expectedReturn / 12;
+  const monthlyStd = stdDev / Math.sqrt(12);
+  const series: number[] = [];
+  for (let i = 0; i < months; i++) {
+    const u1 = Math.max(rand(), 1e-6);
+    const u2 = rand();
+    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    series.push(Number((monthlyMean + z * monthlyStd).toFixed(2)));
+  }
+  return series;
+}
+
+// Reflects the risk measure actually chosen in Assumptions (Std Dev, CVaR,
+// CDaR, Semi-Variance) back in the Performance tab -- previously the tab
+// always showed generic Std Dev/Max Drawdown regardless of the selection,
+// so picking CDaR as the objective's risk measure had no visible result.
+function buildSelectedRiskMeasure(
+  measure: OptimizeRequest["riskMeasure"],
+  performanceSummary: PerformanceSummaryColumn[],
+  monthlyReturnsPct: number[]
+): SelectedRiskMeasureResult {
+  const optimizedColumn = performanceSummary[0];
+  const comparedColumn = performanceSummary[1] ?? null;
+
+  function semiDeviation(returns: number[]): number {
+    const mean = returns.reduce((a, b) => a + b, 0) / (returns.length || 1);
+    const downside = returns.filter((r) => r < mean).map((r) => Math.pow(r - mean, 2));
+    const variance = downside.reduce((a, b) => a + b, 0) / (returns.length || 1);
+    return Math.sqrt(variance) * Math.sqrt(12); // annualized, same convention as stdDevPct
+  }
+
+  function conditionalValueAtRisk(returns: number[], alpha = 0.05): number {
+    if (!returns.length) return 0;
+    const sorted = [...returns].sort((a, b) => a - b);
+    const cutoff = Math.max(1, Math.round(sorted.length * alpha));
+    const tail = sorted.slice(0, cutoff);
+    return tail.reduce((a, b) => a + b, 0) / tail.length; // mean of the worst alpha% months, monthly %
+  }
+
+  switch (measure) {
+    case "std_dev":
+      return { measure, label: "Standard Deviation", optimizedValue: optimizedColumn?.stdDevPct ?? 0, comparedValue: comparedColumn?.stdDevPct ?? null, unit: "pct" };
+    case "semi_variance":
+      return { measure, label: "Semi-Deviation", optimizedValue: Number(semiDeviation(monthlyReturnsPct).toFixed(2)), comparedValue: null, unit: "pct" };
+    case "cvar":
+      return { measure, label: "CVaR (95%, monthly)", optimizedValue: Number(conditionalValueAtRisk(monthlyReturnsPct).toFixed(2)), comparedValue: null, unit: "pct" };
+    case "cdar":
+      return { measure, label: "CDaR (proxied by Max Drawdown)", optimizedValue: optimizedColumn?.maxDrawdownPct ?? 0, comparedValue: comparedColumn?.maxDrawdownPct ?? null, unit: "pct" };
+  }
 }
 
 function evaluateFeasibility(request: OptimizeRequest): { status: FeasibilityStatus; message: string | null } {

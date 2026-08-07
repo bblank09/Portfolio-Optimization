@@ -151,6 +151,14 @@ export interface RollingFold {
 
 export type FeasibilityStatus = "ok" | "non_convergence" | "infeasible_constraints" | "insufficient_data";
 
+export interface SelectedRiskMeasureResult {
+  measure: RiskMeasure;
+  label: string;
+  optimizedValue: number;
+  comparedValue: number | null;
+  unit: "pct" | "ratio"; // most risk measures here are %, a couple (e.g. some tail ratios) could differ later
+}
+
 export interface OptimizeResult {
   feasibility: FeasibilityStatus;
   feasibilityMessage: string | null;
@@ -164,4 +172,13 @@ export interface OptimizeResult {
   performanceSummary: PerformanceSummaryColumn[]; // [optimized, compared] when a comparison is set
   rolling: RollingFold[];
   blackLitterman: { equilibriumReturnPct: Record<string, number>; adjustedReturnPct: Record<string, number> } | null;
+  // Monthly return series for the optimized portfolio, for a return
+  // distribution histogram -- riskfolio-lib's own jupyter_report() ships a
+  // returns histogram alongside weights/risk-contribution charts.
+  monthlyReturnsPct: number[];
+  // The actual risk measure the user picked in Assumptions (Std Dev, CVaR,
+  // CDaR, Semi-Variance), computed for this result -- previously the
+  // Performance tab always showed generic Std Dev/Max Drawdown regardless
+  // of which risk measure was selected.
+  selectedRiskMeasure: SelectedRiskMeasureResult;
 }

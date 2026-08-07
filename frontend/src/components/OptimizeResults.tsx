@@ -58,7 +58,7 @@ export function OptimizeResults({ result, funds, compareLabel }: Props) {
         ))}
       </nav>
 
-      {activeTab === "Summary" ? <SummaryTab compareLabel={compareLabel} nameOf={nameOf} result={result} /> : null}
+      {activeTab === "Summary" ? <SummaryTab compareLabel={compareLabel} nameOf={nameOf} result={result} setActiveTab={setActiveTab} /> : null}
       {activeTab === "Frontier" ? <FrontierTab nameOf={nameOf} result={result} /> : null}
       {activeTab === "Weights" ? <WeightsTab compareLabel={compareLabel} nameOf={nameOf} result={result} /> : null}
       {activeTab === "Performance" ? <PerformanceTab result={result} /> : null}
@@ -74,44 +74,82 @@ function feasibilityTitle(status: OptimizeResult["feasibility"]): string {
   return "Not enough data to optimize.";
 }
 
-function SummaryTab({ result, nameOf, compareLabel }: { result: OptimizeResult; nameOf: (id: string) => string; compareLabel: string | null }) {
-  const topWeights = Object.entries(result.optimalWeights).sort((a, b) => b[1] - a[1]).slice(0, 3);
+// Horizontal bar chart -- riskfolio-lib's own jupyter_report() visualizes
+// risk contribution as a bar chart, not a bare table, with each fund's
+// share of total portfolio risk easy to compare at a glance.
+function RiskContributionBars({ riskContributionPct, nameOf }: { riskContributionPct: Record<string, number>; nameOf: (id: string) => string }) {
+  const rows = Object.entries(riskContributionPct).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(...rows.map(([, share]) => share), 1);
+  const equalShare = 100 / (rows.length || 1);
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {rows.map(([projId, share], index) => (
+        <div key={projId} style={{ display: "grid", gap: 4 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
+            <span>{nameOf(projId)}</span>
+            <span>{pct.format(share)}%</span>
+          </div>
+          <div style={{ background: "var(--surface-2)", borderRadius: 4, height: 10, position: "relative", width: "100%" }}>
+            <div style={{ background: PALETTE[index % PALETTE.length], borderRadius: 4, height: "100%", width: `${(share / max) * 100}%` }} />
+            {/* Equal-risk-contribution reference line, matching riskfolio-lib's own report */}
+            <div style={{ background: "var(--text-tertiary)", bottom: 0, left: `${(equalShare / max) * 100}%`, position: "absolute", top: 0, width: 1 }} />
+          </div>
+        </div>
+      ))}
+      <p className="field-hint">Vertical line marks equal risk contribution ({pct.format(equalShare)}% each).</p>
+    </div>
+  );
+}
+
+function SummaryTab({ result, nameOf, compareLabel, setActiveTab }: { result: OptimizeResult; nameOf: (id: string) => string; compareLabel: string | null; setActiveTab: (tab: ResultTab) => void }) {
+  const topWeights = Object.entries(result.optimalWeights).sort((a, b) => b[1] - a[1]);
+  const topFund = topWeights[0];
+  const optimized = result.performanceSummary[0];
+  const compared = result.performanceSummary[1];
   return (
     <div className="tabStack">
+      <section className="chartPanel">
+        <h3>Run summary</h3>
+        <p className="summaryText">
+          The optimizer put the most weight in <b>{topFund ? nameOf(topFund[0]) : "-"}</b> ({pct.format(topFund?.[1] ?? 0)}%) across {topWeights.length} funds,
+          for an expected return of <b>{pct.format(optimized?.expectedReturnPct ?? 0)}%</b> at <b>{pct.format(optimized?.stdDevPct ?? 0)}%</b> volatility
+          (Sharpe {optimized?.sharpeExAnte ?? 0}).
+          {compareLabel && compared ? (
+            <> Compared against <b>{compareLabel}</b> ({pct.format(compared.expectedReturnPct)}% return, {pct.format(compared.stdDevPct)}% volatility), the optimized mix {optimized && compared && optimized.sharpeExAnte >= compared.sharpeExAnte ? "has a better" : "has a lower"} risk-adjusted return.</>
+          ) : null}
+          {" "}Selected risk measure (<b>{result.selectedRiskMeasure.label}</b>): <b>{pct.format(result.selectedRiskMeasure.optimizedValue)}%</b>.
+        </p>
+      </section>
       {result.robustNote ? (
         <div className="notePanel">
           <span className="badge">Robust Optimization</span>
           <p>{result.robustNote}</p>
         </div>
       ) : null}
+      <div className="metricGrid">
+        <ClickableMetric label="Expected return" onClick={() => setActiveTab("Performance")} sub="See Performance tab" value={`${pct.format(optimized?.expectedReturnPct ?? 0)}%`} />
+        <ClickableMetric label="Volatility" onClick={() => setActiveTab("Performance")} sub="See Performance tab" value={`${pct.format(optimized?.stdDevPct ?? 0)}%`} />
+        <ClickableMetric label="Sharpe (ex-ante)" onClick={() => setActiveTab("Performance")} sub="See Performance tab" value={`${optimized?.sharpeExAnte ?? 0}`} />
+        <ClickableMetric label="Top holding" onClick={() => setActiveTab("Weights")} sub="See Weights tab" value={topFund ? nameOf(topFund[0]) : "-"} />
+      </div>
       <section className="chartPanel">
-        <h3>Top holdings</h3>
-        <div className="metricGrid">
-          {topWeights.map(([projId, weight]) => (
-            <div className="metricCard" key={projId}>
-              <span>{nameOf(projId)}</span>
-              <strong>{pct.format(weight)}%</strong>
-            </div>
-          ))}
-        </div>
-      </section>
-      <section className="tablePanel">
         <h3>Risk contribution</h3>
-        <div className="tableScroller">
-          <table>
-            <thead><tr><th>Fund</th><th>Risk contribution</th></tr></thead>
-            <tbody>
-              {Object.entries(result.riskContributionPct).sort((a, b) => b[1] - a[1]).map(([projId, share]) => (
-                <tr key={projId}><td>{nameOf(projId)}</td><td>{pct.format(share)}%</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RiskContributionBars nameOf={nameOf} riskContributionPct={result.riskContributionPct} />
       </section>
       {compareLabel ? (
         <p className="field-hint">Compared against <b>{compareLabel}</b> in the Weights and Performance tabs.</p>
       ) : null}
     </div>
+  );
+}
+
+function ClickableMetric({ label, value, sub, onClick }: { label: string; value: string; sub: string; onClick: () => void }) {
+  return (
+    <button className="metricCard clickableMetric" onClick={onClick} type="button">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{sub}</small>
+    </button>
   );
 }
 
@@ -375,7 +413,59 @@ function WeightsTab({ result, nameOf, compareLabel }: { result: OptimizeResult; 
   );
 }
 
+// riskfolio-lib's own jupyter_report() ships a return histogram alongside
+// weight/risk-contribution charts -- this app had no return-distribution
+// view anywhere before this.
+function ReturnHistogram({ monthlyReturnsPct }: { monthlyReturnsPct: number[] }) {
+  if (!monthlyReturnsPct.length) return null;
+  const width = 640;
+  const height = 220;
+  const padding = 40;
+  const min = Math.min(...monthlyReturnsPct);
+  const max = Math.max(...monthlyReturnsPct);
+  const binCount = 12;
+  const binSize = (max - min || 1) / binCount;
+  const bins = new Array(binCount).fill(0);
+  for (const r of monthlyReturnsPct) {
+    const index = Math.min(binCount - 1, Math.floor((r - min) / binSize));
+    bins[index] += 1;
+  }
+  const maxCount = Math.max(...bins, 1);
+  const barWidth = (width - padding * 2) / binCount;
+
+  return (
+    <section className="chartPanel">
+      <h3>Monthly return distribution</h3>
+      <div className="chartCanvas">
+        <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
+          <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
+          {bins.map((count, index) => {
+            const barHeight = (count / maxCount) * (height - padding * 2);
+            const x = padding + index * barWidth;
+            const binStart = min + index * binSize;
+            const isNegative = binStart < 0;
+            return (
+              <rect
+                fill={isNegative ? "var(--danger)" : "var(--accent)"}
+                fillOpacity={0.85}
+                height={barHeight}
+                key={index}
+                width={barWidth - 2}
+                x={x}
+                y={height - padding - barHeight}
+              />
+            );
+          })}
+          <text className="axisText" x={width / 2} y={height - 8}>Monthly return (%)</text>
+        </svg>
+      </div>
+      <p className="field-hint">{monthlyReturnsPct.length}-month synthetic return series for the optimized portfolio (mock -- Phase 5 uses the real historical/simulated series).</p>
+    </section>
+  );
+}
+
 function PerformanceTab({ result }: { result: OptimizeResult }) {
+  const rm = result.selectedRiskMeasure;
   return (
     <div className="tabStack">
       <section className="tablePanel">
@@ -395,10 +485,16 @@ function PerformanceTab({ result }: { result: OptimizeResult }) {
               <tr><td>Sharpe (ex-ante)</td>{result.performanceSummary.map((c) => <td key={c.label}>{c.sharpeExAnte}</td>)}</tr>
               <tr><td>Sharpe (ex-post)</td>{result.performanceSummary.map((c) => <td key={c.label}>{c.sharpeExPost}</td>)}</tr>
               <tr><td>Sortino</td>{result.performanceSummary.map((c) => <td key={c.label}>{c.sortino}</td>)}</tr>
+              <tr>
+                <td>Selected risk measure: {rm.label}</td>
+                <td>{pct.format(rm.optimizedValue)}%</td>
+                {result.performanceSummary[1] ? <td>{rm.comparedValue !== null ? `${pct.format(rm.comparedValue)}%` : "-"}</td> : null}
+              </tr>
             </tbody>
           </table>
         </div>
       </section>
+      <ReturnHistogram monthlyReturnsPct={result.monthlyReturnsPct} />
     </div>
   );
 }
