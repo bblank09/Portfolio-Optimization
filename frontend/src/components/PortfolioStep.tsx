@@ -296,21 +296,8 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
           </div>
         </div>
 
-        {allNamed && committedRows.length > 0 ? (
-          total > 0 ? (
-            <AllocationDonut fundsById={fundsById} onWeightsChange={setWeights} rows={committedRows} />
-          ) : (
-            // All weights are 0 (typical when weightsOptional -- there's
-            // nothing to chart yet). A donut with every slice at 0% just
-            // renders as an empty ring with no color, which reads as
-            // broken rather than "not entered yet" -- show the selected
-            // funds as a plain list instead.
-            <div className="selected-funds-list">
-              {committedRows.map((row) => (
-                <span className="badge" key={row.key}>{fundsById.get(row.projId)?.display_name ?? row.projId}</span>
-              ))}
-            </div>
-          )
+        {allNamed && committedRows.length > 0 && total > 0 ? (
+          <AllocationDonut fundsById={fundsById} onWeightsChange={setWeights} rows={committedRows} />
         ) : null}
       </div>
 
