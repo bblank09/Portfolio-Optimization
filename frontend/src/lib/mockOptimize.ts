@@ -335,6 +335,20 @@ function buildFrontier(
   // unit of extra risk) -- a small per-point jitter, seeded once rather than
   // per-point, keeps the mock looking plausible without a jagged sawtooth.
   const jitterSeed = (rand() - 0.5) * 0.4;
+
+  // Low-risk end of the frontier leans toward low-volatility funds
+  // (inverse-vol weighted); high-risk end leans toward high-expected-return
+  // funds. Interpolating between the two per point gives the Transition Map
+  // something real to show -- flat equal weights at every point would
+  // render as static bands with no visible transition.
+  const invVolTotal = perAsset.reduce((sum, a) => sum + 1 / Math.max(a.volatilityPct, 0.5), 0);
+  const lowRiskWeights: Record<string, number> = {};
+  for (const a of perAsset) lowRiskWeights[a.fund.proj_id] = (1 / Math.max(a.volatilityPct, 0.5) / invVolTotal) * 100;
+
+  const returnTotal = perAsset.reduce((sum, a) => sum + Math.max(a.expectedReturnPct, 0.1), 0);
+  const highRiskWeights: Record<string, number> = {};
+  for (const a of perAsset) highRiskWeights[a.fund.proj_id] = (Math.max(a.expectedReturnPct, 0.1) / returnTotal) * 100;
+
   const points: FrontierPoint[] = [];
   const steps = 24;
   for (let i = 0; i < steps; i++) {
@@ -342,8 +356,13 @@ function buildFrontier(
     const vol = minVol + (maxVol - minVol) * t;
     const ret = minRet + (maxRet - minRet) * Math.sqrt(t) + jitterSeed * Math.sin(t * Math.PI);
     const sharpe = vol > 0 ? ret / vol : 0;
+    const raw: Record<string, number> = {};
+    for (const a of perAsset) {
+      raw[a.fund.proj_id] = lowRiskWeights[a.fund.proj_id] * (1 - t) + highRiskWeights[a.fund.proj_id] * t;
+    }
+    const rawTotal = Object.values(raw).reduce((sum, w) => sum + w, 0) || 1;
     const weights: Record<string, number> = {};
-    for (const a of perAsset) weights[a.fund.proj_id] = Number((100 / perAsset.length).toFixed(2));
+    for (const a of perAsset) weights[a.fund.proj_id] = Number(((raw[a.fund.proj_id] / rawTotal) * 100).toFixed(2));
     points.push({ volatilityPct: Number(vol.toFixed(2)), expectedReturnPct: Number(ret.toFixed(2)), sharpe: Number(sharpe.toFixed(3)), weights });
   }
   return points;

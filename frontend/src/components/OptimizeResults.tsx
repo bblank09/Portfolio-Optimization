@@ -13,6 +13,9 @@ type ResultTab = "Summary" | "Frontier" | "Weights" | "Performance" | "Rolling" 
 const TABS: ResultTab[] = ["Summary", "Frontier", "Weights", "Performance", "Rolling", "Report"];
 
 const pct = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+// Same palette PortfolioStep's AllocationDonut uses, so a fund reads as
+// the same color across the Portfolio step and these Results charts.
+const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
 
 export function OptimizeResults({ result, funds, compareLabel }: Props) {
   const [activeTab, setActiveTab] = useState<ResultTab>("Summary");
@@ -141,6 +144,7 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
         </div>
         <p className="field-hint">Mock frontier -- Phase 5 replaces this with riskfolio-lib's real efficient_frontier() output.</p>
       </section>
+      <TransitionMap nameOf={nameOf} result={result} />
       <section className="tablePanel">
         <h3>Asset summary</h3>
         <div className="tableScroller">
@@ -175,6 +179,139 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
           </table>
         </div>
       </section>
+      <section className="tablePanel compactTable">
+        <h3>Efficient frontier points</h3>
+        <div className="tableScroller">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>Volatility</th><th>Expected return</th><th>Sharpe</th>
+                {result.assetSummary.map((row) => <th key={row.projId}>{nameOf(row.projId)}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {result.frontier.map((point, index) => (
+                <tr key={index}>
+                  <td>{index + 1}</td>
+                  <td>{pct.format(point.volatilityPct)}%</td>
+                  <td>{pct.format(point.expectedReturnPct)}%</td>
+                  <td>{point.sharpe}</td>
+                  {result.assetSummary.map((row) => <td key={row.projId}>{pct.format(point.weights[row.projId] ?? 0)}%</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// PV's own Efficient Frontier Transition Map: a stacked-area chart showing
+// how each fund's weight shifts across the frontier (x-axis: frontier
+// point / risk level), not just the endpoint allocation -- confirmed live
+// this session, previously spec'd in docs/mock-ui-spec.md but not built.
+function TransitionMap({ result, nameOf }: { result: OptimizeResult; nameOf: (id: string) => string }) {
+  const width = 640;
+  const height = 260;
+  const padding = 40;
+  const ids = result.assetSummary.map((row) => row.projId);
+  const n = result.frontier.length;
+  if (!n || !ids.length) return null;
+  const stepX = (width - padding * 2) / Math.max(n - 1, 1);
+
+  // Cumulative stack per point, in the same fund order every time so the
+  // bands don't swap which fund is "on top" between points.
+  const stacks = result.frontier.map((point) => {
+    let running = 0;
+    return ids.map((id) => {
+      const w = point.weights[id] ?? 0;
+      const from = running;
+      running += w;
+      return { id, from, to: running };
+    });
+  });
+
+  function bandPath(fundIndex: number): string {
+    const top = result.frontier.map((_, pointIndex) => {
+      const x = padding + stepX * pointIndex;
+      const y = height - padding - (stacks[pointIndex][fundIndex].to / 100) * (height - padding * 2);
+      return `${x},${y}`;
+    });
+    const bottom = result.frontier.map((_, pointIndex) => {
+      const x = padding + stepX * pointIndex;
+      const y = height - padding - (stacks[pointIndex][fundIndex].from / 100) * (height - padding * 2);
+      return `${x},${y}`;
+    }).reverse();
+    return `M${top.join(" L")} L${bottom.join(" L")} Z`;
+  }
+
+  return (
+    <section className="chartPanel">
+      <h3>Efficient frontier transition map</h3>
+      <div className="chartCanvas">
+        <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
+          <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
+          <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
+          {ids.map((id, index) => (
+            <path d={bandPath(index)} fill={PALETTE[index % PALETTE.length]} fillOpacity={0.85} key={id} stroke="var(--bg)" strokeWidth={0.5} />
+          ))}
+          <text className="axisText" x={width / 2} y={height - 8}>Frontier point (low to high risk)</text>
+          <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Allocation (%)</text>
+        </svg>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
+        {ids.map((id, index) => (
+          <div key={id} style={{ alignItems: "center", display: "flex", fontSize: 12.5, gap: 6 }}>
+            <span style={{ background: PALETTE[index % PALETTE.length], borderRadius: 2, display: "inline-block", height: 10, width: 10 }} />
+            {nameOf(id)}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// Read-only pie -- PortfolioStep's AllocationDonut is built for the
+// drag-to-edit interaction on Step 1's Row type; this is the same visual
+// shape but for a plain, non-editable weight map (PV shows a pie beside
+// every allocation table, both the optimized one and the compared one).
+function StaticPie({ weights, nameOf }: { weights: Record<string, number>; nameOf: (id: string) => string }) {
+  const entries = Object.entries(weights).filter(([, w]) => w > 0);
+  const total = entries.reduce((sum, [, w]) => sum + w, 0) || 1;
+  const cx = 60;
+  const cy = 60;
+  const r = 50;
+  const inner = 30;
+  let angle = -90;
+  const arcs = entries.map(([id, weight], index) => {
+    const sweep = (weight / total) * 360;
+    const startAngle = angle;
+    const x1 = cx + r * Math.cos((startAngle * Math.PI) / 180);
+    const y1 = cy + r * Math.sin((startAngle * Math.PI) / 180);
+    const endAngle = startAngle + sweep;
+    const x2 = cx + r * Math.cos((endAngle * Math.PI) / 180);
+    const y2 = cy + r * Math.sin((endAngle * Math.PI) / 180);
+    const large = sweep > 180 ? 1 : 0;
+    const color = PALETTE[index % PALETTE.length];
+    const d = `M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`;
+    angle = endAngle;
+    return { d, color, id, weight };
+  });
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+      <svg height={120} viewBox="0 0 120 120" width={120}>
+        {arcs.map((arc) => <path d={arc.d} fill={arc.color} key={arc.id} />)}
+        <circle cx={cx} cy={cy} fill="var(--surface)" r={inner} />
+      </svg>
+      <div style={{ display: "grid", gap: 4 }}>
+        {arcs.map((arc) => (
+          <div key={arc.id} style={{ alignItems: "center", display: "flex", fontSize: 12.5, gap: 6 }}>
+            <span style={{ background: arc.color, borderRadius: 2, display: "inline-block", height: 10, width: 10 }} />
+            {nameOf(arc.id)} &mdash; {pct.format(arc.weight)}%
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -183,6 +320,18 @@ function WeightsTab({ result, nameOf, compareLabel }: { result: OptimizeResult; 
   const ids = Object.keys(result.optimalWeights);
   return (
     <div className="tabStack">
+      <section className="panelGrid">
+        <div className="chartPanel">
+          <h3>Optimized</h3>
+          <StaticPie nameOf={nameOf} weights={result.optimalWeights} />
+        </div>
+        {result.compareWeights ? (
+          <div className="chartPanel">
+            <h3>{compareLabel}</h3>
+            <StaticPie nameOf={nameOf} weights={result.compareWeights} />
+          </div>
+        ) : null}
+      </section>
       <section className="tablePanel">
         <h3>Optimal weights{compareLabel ? ` vs. ${compareLabel}` : ""}</h3>
         <div className="tableScroller">
