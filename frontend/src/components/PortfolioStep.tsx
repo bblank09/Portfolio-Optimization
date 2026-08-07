@@ -204,7 +204,10 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
 
   function loadExample() {
     if (funds.length < 2) return;
-    seedRows(funds.slice(0, 2).map((fund, index) => ({ fund, weight: index === 0 ? 60 : 40 })));
+    // When weights are optional (OptimizeWorkspace), a preset 60/40 looks
+    // like a real input the optimizer will honor -- it won't. Seed at 0 so
+    // nothing implies a precision that isn't there.
+    seedRows(funds.slice(0, 2).map((fund, index) => ({ fund, weight: weightsOptional ? 0 : index === 0 ? 60 : 40 })));
   }
 
   const committedRows = rows.filter((row) => row.projId);
@@ -242,7 +245,12 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
         <div className="holdings-table">
           <div className="holdings-head">
             <div>SEC Fund</div>
-            <div>{weightsOptional ? "Weight % (optional)" : "Weight %"}</div>
+            {/* Same single-line label either way -- the earlier
+                "(optional)" suffix wrapped to a second line and threw off
+                vertical alignment against the single-line "SEC Fund"
+                header. The page-head copy and footnote already explain
+                that weights are optional when weightsOptional is set. */}
+            <div>Weight %</div>
             <div />
           </div>
           {rows.map((row) => (
