@@ -75,6 +75,48 @@ export function OptimizeResults({ result, funds, compareLabel, request }: Props)
   );
 }
 
+// Every SVG chart in this file previously had axis TITLES ("Growth of
+// 100", "Volatility (%)") but zero numeric tick VALUES anywhere -- a user
+// could see a line move but never read what value it was at, on any
+// chart in the app. Shared tick helpers fix that consistently everywhere
+// instead of one-off text elements per chart.
+function niceTicks(min: number, max: number, count = 4): number[] {
+  if (min === max) return [min];
+  const ticks: number[] = [];
+  for (let i = 0; i <= count; i++) ticks.push(min + ((max - min) * i) / count);
+  return ticks;
+}
+
+function YAxisTicks({ min, max, padding, width, height, y, format }: {
+  min: number; max: number; padding: number; width: number; height: number;
+  y: (v: number) => number; format: (v: number) => string;
+}) {
+  return (
+    <>
+      {niceTicks(min, max).map((v, i) => (
+        <g key={i}>
+          {i > 0 ? <line className="gridLine" opacity={0.4} x1={padding} x2={width - padding} y1={y(v)} y2={y(v)} /> : null}
+          <text className="axisText" fontSize={10} textAnchor="end" x={padding - 6} y={y(v) + 3}>{format(v)}</text>
+        </g>
+      ))}
+      <line className="gridLine" opacity={0.4} x1={padding} x2={width - padding} y1={y(max)} y2={y(max)} />
+    </>
+  );
+}
+
+function XAxisTicks({ labels, padding, width, y }: { labels: string[]; padding: number; width: number; y: number }) {
+  if (labels.length < 2) return null;
+  return (
+    <>
+      {labels.map((label, i) => (
+        <text className="axisText" fontSize={10} key={i} textAnchor={i === 0 ? "start" : i === labels.length - 1 ? "end" : "middle"} x={padding + (i / (labels.length - 1)) * (width - padding * 2)} y={y}>
+          {label}
+        </text>
+      ))}
+    </>
+  );
+}
+
 function downloadText(filename: string, content: string, type: string) {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -113,6 +155,8 @@ function EquityCurveChart({ title, series }: { title: string; series: { label: s
         <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
           <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
           <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
+          <YAxisTicks format={(v) => v.toFixed(0)} height={height} max={maxV} min={minV} padding={padding} width={width} y={y} />
+          <XAxisTicks labels={n > 1 ? ["1", String(n)] : ["1"]} padding={padding} width={width} y={height - padding + 14} />
           {paths.map((p) => (
             <path
               d={p.points.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(v)}`).join(" ")}
@@ -122,7 +166,7 @@ function EquityCurveChart({ title, series }: { title: string; series: { label: s
               strokeWidth={2}
             />
           ))}
-          <text className="axisText" x={width / 2} y={height - 8}>Period</text>
+          <text className="axisText" x={width / 2} y={height - 6}>Period</text>
           <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Growth of 100</text>
         </svg>
       </div>
@@ -172,9 +216,11 @@ function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
         <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
           <line className="gridLine" x1={padding} x2={width - padding} y1={yZero} y2={yZero} />
           <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={yBottom} />
+          <YAxisTicks format={(v) => `${v.toFixed(0)}%`} height={height} max={0} min={minDd} padding={padding} width={width} y={y} />
+          <XAxisTicks labels={n > 1 ? ["1", String(n)] : ["1"]} padding={padding} width={width} y={yBottom + 14} />
           <path d={areaPath} fill="var(--danger)" fillOpacity={0.18} stroke="none" />
           <path d={linePath} fill="none" stroke="var(--danger)" strokeWidth={2} />
-          <text className="axisText" x={width / 2} y={height - 8}>Period</text>
+          <text className="axisText" x={width / 2} y={height - 6}>Period</text>
           <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Drawdown (%)</text>
         </svg>
       </div>
@@ -305,6 +351,20 @@ function ClickableMetric({ label, value, sub, onClick }: { label: string; value:
   );
 }
 
+// Non-interactive counterpart to ClickableMetric -- for metrics with
+// nowhere to jump to (there's no other tab a "positive folds" count would
+// link into), a plain metricCard reads correctly; wrapping it in a
+// <button> with a no-op onClick would falsely signal it's clickable.
+function StaticMetric({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div className="metricCard">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{sub}</small>
+    </div>
+  );
+}
+
 // Mirrors the sibling backtester's own Summary-tab "Result checklist" --
 // a quick pass/fail scan of the run, not just headline numbers.
 function ResultChecklist({ result, compareLabel }: { result: OptimizeResult; compareLabel: string | null }) {
@@ -383,17 +443,19 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
           <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
             <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
             <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
+            <YAxisTicks format={(v) => `${v.toFixed(1)}%`} height={height} max={maxRet} min={minRet} padding={padding} width={width} y={y} />
+            <XAxisTicks labels={[`${minVol.toFixed(1)}%`, `${maxVol.toFixed(1)}%`]} padding={padding} width={width} y={height - padding + 14} />
             <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} />
             {assetPoints.map((a, index) => (
               <g key={a.id}>
                 <circle cx={x(a.volatilityPct)} cy={y(a.expectedReturnPct)} fill={PALETTE[index % PALETTE.length]} r={4} stroke="var(--bg)" strokeWidth={1.5} />
-                <text className="axisText" fontSize={10} textAnchor="middle" x={x(a.volatilityPct)} y={y(a.expectedReturnPct) - 8}>{nameOf(a.id)}</text>
+                <text className="axisText" fontSize={10} paintOrder="stroke" stroke="var(--bg)" strokeWidth={3} textAnchor="middle" x={x(a.volatilityPct)} y={y(a.expectedReturnPct) - 8}>{nameOf(a.id)}</text>
               </g>
             ))}
             {markers.map((m) => (
               <circle cx={x(m.volatilityPct)} cy={y(m.expectedReturnPct)} fill={markerColors[m.label] ?? "var(--text)"} key={m.label} r={5} stroke="var(--bg)" strokeWidth={2} />
             ))}
-            <text className="axisText" x={width / 2} y={height - 8}>Volatility (%)</text>
+            <text className="axisText" x={width / 2} y={height - 6}>Volatility (%)</text>
             <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Expected return (%)</text>
           </svg>
         </div>
@@ -762,6 +824,8 @@ function ReturnHistogram({ monthlyReturnsPct }: { monthlyReturnsPct: number[] })
       <div className="chartCanvas">
         <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
           <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
+          <YAxisTicks format={(v) => v.toFixed(0)} height={height} max={maxCount} min={0} padding={padding} width={width} y={(v) => height - padding - (v / maxCount) * (height - padding * 2)} />
+          <XAxisTicks labels={[`${min.toFixed(1)}%`, `${max.toFixed(1)}%`]} padding={padding} width={width} y={height - padding + 14} />
           {bins.map((count, index) => {
             const barHeight = (count / maxCount) * (height - padding * 2);
             const x = padding + index * barWidth;
@@ -779,7 +843,7 @@ function ReturnHistogram({ monthlyReturnsPct }: { monthlyReturnsPct: number[] })
               />
             );
           })}
-          <text className="axisText" x={width / 2} y={height - 8}>Monthly return (%)</text>
+          <text className="axisText" x={width / 2} y={height - 6}>Monthly return (%)</text>
         </svg>
       </div>
       <p className="field-hint">{monthlyReturnsPct.length}-month synthetic return series for the optimized portfolio (mock -- Phase 5 uses the real historical/simulated series).</p>
@@ -971,8 +1035,10 @@ function RollingSharpeChart({ rolling }: { rolling: OptimizeResult["rolling"] })
         <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
           <line className="gridLine" x1={padding} x2={width - padding} y1={y(0)} y2={y(0)} />
           <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
+          <YAxisTicks format={(v) => v.toFixed(2)} height={height} max={maxV} min={minV} padding={padding} width={width} y={y} />
+          <XAxisTicks labels={n > 1 ? [rolling[0].periodLabel, rolling[n - 1].periodLabel] : [rolling[0].periodLabel]} padding={padding} width={width} y={height - padding + 14} />
           <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} />
-          <text className="axisText" x={width / 2} y={height - 8}>Fold</text>
+          <text className="axisText" x={width / 2} y={height - 6}>Fold</text>
           <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Realized Sharpe</text>
         </svg>
       </div>
@@ -981,8 +1047,22 @@ function RollingSharpeChart({ rolling }: { rolling: OptimizeResult["rolling"] })
 }
 
 function RollingTab({ result }: { result: OptimizeResult }) {
+  const folds = result.rolling;
+  const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / (values.length || 1);
+  const avgReturn = mean(folds.map((f) => f.realizedReturnPct));
+  const avgVol = mean(folds.map((f) => f.realizedVolatilityPct));
+  const avgSharpe = mean(folds.map((f) => f.realizedSharpe));
+  const positiveFolds = folds.filter((f) => f.realizedReturnPct > 0).length;
   return (
     <div className="tabStack">
+      {folds.length ? (
+        <div className="metricGrid">
+          <StaticMetric label="Avg. realized return" sub={`across ${folds.length} folds`} value={`${pct.format(avgReturn)}%`} />
+          <StaticMetric label="Avg. realized volatility" sub={`across ${folds.length} folds`} value={`${pct.format(avgVol)}%`} />
+          <StaticMetric label="Avg. realized Sharpe" sub="out-of-sample" value={`${avgSharpe.toFixed(2)}`} />
+          <StaticMetric label="Positive folds" sub="realized return > 0" value={`${positiveFolds} / ${folds.length}`} />
+        </div>
+      ) : null}
       <EquityCurveChart
         series={[{ label: "Rolling out-of-sample", returnsPct: result.rolling.map((f) => f.realizedReturnPct), color: "#5b21d6" }]}
         title="Growth of 100 (rolling out-of-sample)"
