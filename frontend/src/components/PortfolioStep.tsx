@@ -127,12 +127,10 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
   useEffect(() => {
     if (seededRef.current || funds.length < 2) return;
     seededRef.current = true;
-    // weightsOptional (OptimizeWorkspace): a hardcoded 60/40 on first load
-    // looks like a real, deliberate input the optimizer will honor -- it
-    // won't, and there's no reason to pre-select specific funds either.
-    // Leave the single empty starting row instead of auto-seeding.
-    if (weightsOptional) return;
-    seedRows(funds.slice(0, 2).map((fund, index) => ({ fund, weight: index === 0 ? 60 : 40 })));
+    // weightsOptional (OptimizeWorkspace): still pre-select two funds so
+    // the page isn't empty on first load, but at weight 0 -- a hardcoded
+    // 60/40 looks like a real input the optimizer will honor, and it won't.
+    seedRows(funds.slice(0, 2).map((fund, index) => ({ fund, weight: weightsOptional ? 0 : index === 0 ? 60 : 40 })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funds]);
 

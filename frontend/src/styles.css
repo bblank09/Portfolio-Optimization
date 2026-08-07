@@ -236,7 +236,12 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 /* ---------- Holdings / portfolio builder ---------- */
 .holdings-table { display: flex; flex-direction: column; gap: 10px; }
-.holdings-head, .holdings-row { display: grid; grid-template-columns: 1fr 110px 34px; gap: 10px; align-items: center; }
+/* align-items: start, not center -- the fund cell grows taller than the
+   weight cell whenever a fund's NAV-coverage caption renders below its
+   input (fund-coverage-hint), and "center" was centering the short weight
+   input in that taller row instead of keeping both inputs' top edges level
+   with each other (measured ~11px vertical offset before this fix). */
+.holdings-head, .holdings-row { display: grid; grid-template-columns: 1fr 110px 34px; gap: 10px; align-items: start; }
 /* padding-left matches .field's own 10px left padding (line ~251) so each
    header label sits directly above the text inside its input, not offset
    by the input's internal padding. */
