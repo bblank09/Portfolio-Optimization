@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
 
-const STAGES = ["Validating inputs", "Loading SEC NAV cache", "Computing backtest", "Preparing report"];
+const DEFAULT_STAGES = ["Validating inputs", "Loading SEC NAV cache", "Computing backtest", "Preparing report"];
+const DEFAULT_TITLE = "Running backtest…";
 
 interface Props {
   open: boolean;
+  // Both optional so the original BacktestWorkspace caller is unaffected --
+  // OptimizeWorkspace passes optimizer-specific copy instead.
+  title?: string;
+  stages?: string[];
 }
 
-export function RunOverlay({ open }: Props) {
+export function RunOverlay({ open, title = DEFAULT_TITLE, stages = DEFAULT_STAGES }: Props) {
   const [activeStage, setActiveStage] = useState(0);
 
   useEffect(() => {
@@ -15,9 +20,10 @@ export function RunOverlay({ open }: Props) {
       return;
     }
     const interval = setInterval(() => {
-      setActiveStage((current) => Math.min(STAGES.length - 1, current + 1));
+      setActiveStage((current) => Math.min(stages.length - 1, current + 1));
     }, 450);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   if (!open) return null;
@@ -25,9 +31,9 @@ export function RunOverlay({ open }: Props) {
   return (
     <div className="run-overlay open">
       <div className="run-panel">
-        <h4>Running backtest&hellip;</h4>
+        <h4>{title}</h4>
         <div className="run-steps">
-          {STAGES.map((stage, index) => (
+          {stages.map((stage, index) => (
             <div className={index < activeStage ? "run-step done" : index === activeStage ? "run-step active" : "run-step"} key={stage}>
               <span className="marker" /> {stage}
             </div>
