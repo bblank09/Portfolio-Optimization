@@ -237,7 +237,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* ---------- Holdings / portfolio builder ---------- */
 .holdings-table { display: flex; flex-direction: column; gap: 10px; }
 .holdings-head, .holdings-row { display: grid; grid-template-columns: 1fr 110px 34px; gap: 10px; align-items: center; }
-.holdings-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); padding: 0 2px; }
+/* padding-left matches .field's own 10px left padding (line ~251) so each
+   header label sits directly above the text inside its input, not offset
+   by the input's internal padding. */
+.holdings-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); padding: 0 2px 0 10px; }
 @media (max-width: 520px) {
   .holdings-head { display: none; }
   .holdings-row {
