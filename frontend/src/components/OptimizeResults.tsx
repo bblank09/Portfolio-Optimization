@@ -65,7 +65,7 @@ export function OptimizeResults({ result, funds, compareLabel, request }: Props)
         ))}
       </nav>
 
-      {activeTab === "Summary" ? <SummaryTab compareLabel={compareLabel} nameOf={nameOf} result={result} setActiveTab={setActiveTab} /> : null}
+      {activeTab === "Summary" ? <SummaryTab compareLabel={compareLabel} nameOf={nameOf} request={request} result={result} setActiveTab={setActiveTab} /> : null}
       {activeTab === "Frontier" ? <FrontierTab nameOf={nameOf} result={result} /> : null}
       {activeTab === "Weights" ? <WeightsTab compareLabel={compareLabel} nameOf={nameOf} result={result} /> : null}
       {activeTab === "Performance" ? <PerformanceTab result={result} /> : null}
@@ -283,7 +283,7 @@ function RiskContributionBars({ riskContributionPct, nameOf }: { riskContributio
   );
 }
 
-function SummaryTab({ result, nameOf, compareLabel, setActiveTab }: { result: OptimizeResult; nameOf: (id: string) => string; compareLabel: string | null; setActiveTab: (tab: ResultTab) => void }) {
+function SummaryTab({ result, nameOf, compareLabel, setActiveTab, request }: { result: OptimizeResult; nameOf: (id: string) => string; compareLabel: string | null; setActiveTab: (tab: ResultTab) => void; request?: OptimizeRequest }) {
   const topWeights = Object.entries(result.optimalWeights).sort((a, b) => b[1] - a[1]);
   const topFund = topWeights[0];
   const optimized = result.performanceSummary[0];
@@ -300,6 +300,12 @@ function SummaryTab({ result, nameOf, compareLabel, setActiveTab }: { result: Op
             <> Compared against <b>{compareLabel}</b> ({pct.format(compared.expectedReturnPct)}% return, {pct.format(compared.stdDevPct)}% volatility), the optimized mix {optimized && compared && optimized.sharpeExAnte >= compared.sharpeExAnte ? "has a better" : "has a lower"} risk-adjusted return.</>
           ) : null}
           {" "}Selected risk measure (<b>{result.selectedRiskMeasure.label}</b>): <b>{pct.format(result.selectedRiskMeasure.optimizedValue)}%</b>.
+          {result.tradeList.length ? (
+            <> Getting there from your current portfolio needs <b>{pct.format(result.totalTurnoverPct)}%</b> one-way turnover -- see the Weights tab for the full trade list.</>
+          ) : null}
+          {result.benchmarkComparison ? (
+            <> Against the <b>{result.benchmarkComparison.displayName}</b> benchmark, the optimized mix has {result.benchmarkComparison.excessReturnPct >= 0 ? "an excess return of" : "a shortfall of"} <b>{pct.format(Math.abs(result.benchmarkComparison.excessReturnPct))}%</b> with <b>{pct.format(result.benchmarkComparison.trackingErrorPct)}%</b> tracking error.</>
+          ) : null}
         </p>
       </section>
       {result.robustNote ? (
@@ -313,12 +319,18 @@ function SummaryTab({ result, nameOf, compareLabel, setActiveTab }: { result: Op
         <ClickableMetric label="Volatility" onClick={() => setActiveTab("Performance")} sub="See Performance tab" value={`${pct.format(optimized?.stdDevPct ?? 0)}%`} />
         <ClickableMetric label="Sharpe (ex-ante)" onClick={() => setActiveTab("Performance")} sub="See Performance tab" value={`${optimized?.sharpeExAnte ?? 0}`} />
         <ClickableMetric label="Top holding" onClick={() => setActiveTab("Weights")} sub="See Weights tab" value={topFund ? nameOf(topFund[0]) : "-"} />
+        {result.tradeList.length ? (
+          <ClickableMetric label="Turnover to rebalance" onClick={() => setActiveTab("Weights")} sub="See Weights tab" value={`${pct.format(result.totalTurnoverPct)}%`} />
+        ) : null}
+        {result.benchmarkComparison ? (
+          <ClickableMetric label="vs. Benchmark" onClick={() => setActiveTab("Performance")} sub="See Performance tab" value={`${result.benchmarkComparison.excessReturnPct >= 0 ? "+" : ""}${pct.format(result.benchmarkComparison.excessReturnPct)}%`} />
+        ) : null}
       </div>
       <section className="chartPanel">
         <h3>Risk contribution</h3>
         <RiskContributionBars nameOf={nameOf} riskContributionPct={result.riskContributionPct} />
       </section>
-      <ResultChecklist compareLabel={compareLabel} result={result} />
+      <ResultChecklist compareLabel={compareLabel} request={request} result={result} />
       {result.bindingConstraints.length ? (
         <section className="tablePanel">
           <h3>What's actually constraining this result</h3>
@@ -367,7 +379,7 @@ function StaticMetric({ label, value, sub }: { label: string; value: string; sub
 
 // Mirrors the sibling backtester's own Summary-tab "Result checklist" --
 // a quick pass/fail scan of the run, not just headline numbers.
-function ResultChecklist({ result, compareLabel }: { result: OptimizeResult; compareLabel: string | null }) {
+function ResultChecklist({ result, compareLabel, request }: { result: OptimizeResult; compareLabel: string | null; request?: OptimizeRequest }) {
   const weightSum = Object.values(result.optimalWeights).reduce((a, b) => a + b, 0);
   const items: { label: string; status: "ok" | "warn"; detail: string }[] = [
     {
@@ -385,10 +397,23 @@ function ResultChecklist({ result, compareLabel }: { result: OptimizeResult; com
       label: "Comparison allocation",
       status: "ok",
       detail: compareLabel ? `vs. ${compareLabel}` : "none selected"
+    },
+    {
+      label: "Benchmark",
+      status: "ok",
+      detail: result.benchmarkComparison ? `set: ${result.benchmarkComparison.displayName}` : "none selected"
     }
   ];
   if (result.blackLitterman) {
     items.push({ label: "Black-Litterman views", status: "ok", detail: "equilibrium returns adjusted" });
+  }
+  const turnoverCap = request?.constraints.maxTurnoverPct ?? null;
+  if (result.tradeList.length) {
+    items.push({
+      label: "Turnover within limit",
+      status: turnoverCap === null || result.totalTurnoverPct <= turnoverCap ? "ok" : "warn",
+      detail: turnoverCap === null ? `${pct.format(result.totalTurnoverPct)}%, no limit set` : `${pct.format(result.totalTurnoverPct)}% of ${turnoverCap}% max`
+    });
   }
   return (
     <section className="tablePanel">
@@ -1115,7 +1140,22 @@ function ReportTab({ result, compareLabel, nameOf, request }: { result: Optimize
         </ReportSection>
 
         <ReportSection title="2. Data and methodology">
-          <p>This run used the objective, risk measure, return/covariance estimation method, and constraints set in the Assumptions step. See <code>docs/optimization-assumptions.md</code> and <code>docs/mock-ui-spec.md</code> for the sourced methodology behind every field.</p>
+          {request ? (
+            <p>
+              Time period: <b>{request.timePeriod.startDate}</b> to <b>{request.timePeriod.endDate}</b> ({request.dataFrequency} data).
+              Return method: <b>{request.returnMethod.replace(/_/g, " ")}</b>. Covariance method: <b>{request.covarianceMethod}</b>.
+              Risk-free rate: <b>{request.constraints.riskFreeRatePct}%/yr</b>.
+              {request.constraints.longOnly ? " Long-only." : " Short positions permitted."}
+              {" "}Default weight bounds: <b>{request.constraints.minWeightPct}%</b> to <b>{request.constraints.maxWeightPct}%</b> per fund.
+              {request.constraints.groupConstraintsEnabled ? " Group constraints enabled." : ""}
+              {request.constraints.maxTurnoverPct !== null ? ` Max turnover: ${request.constraints.maxTurnoverPct}% per rebalance.` : ""}
+              {request.constraints.maxTrackingErrorPct !== null ? ` Max tracking error: ${request.constraints.maxTrackingErrorPct}%.` : ""}
+              {" "}Re-validated every <b>{request.constraints.optimizationFrequency}</b> on a <b>{request.constraints.lookbackPeriodMonths}-month</b> lookback.
+            </p>
+          ) : (
+            <p>This run used the objective, risk measure, return/covariance estimation method, and constraints set in the Assumptions step.</p>
+          )}
+          <p className="footnote">See <code>docs/optimization-assumptions.md</code> and <code>docs/mock-ui-spec.md</code> for the sourced methodology behind every field.</p>
         </ReportSection>
 
         <ReportSection title="3. Optimal allocation">
@@ -1131,7 +1171,74 @@ function ReportTab({ result, compareLabel, nameOf, request }: { result: Optimize
           </div>
         </ReportSection>
 
-        <ReportSection title="4. Performance results">
+        {result.tradeList.length ? (
+          <ReportSection title="4. Trade list to get there">
+            <p>From your current portfolio, reaching the optimal allocation needs <b>{pct.format(result.totalTurnoverPct)}%</b> one-way turnover.</p>
+            <div className="tableScroller">
+              <table>
+                <thead><tr><th>Fund</th><th>Current</th><th>Optimal</th><th>Change</th><th>Action</th></tr></thead>
+                <tbody>
+                  {result.tradeList.map((row) => (
+                    <tr key={row.projId}>
+                      <td>{row.displayName}</td>
+                      <td>{pct.format(row.currentWeightPct)}%</td>
+                      <td>{pct.format(row.optimalWeightPct)}%</td>
+                      <td>{row.deltaPct >= 0 ? "+" : ""}{pct.format(row.deltaPct)}%</td>
+                      <td>{row.action}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ReportSection>
+        ) : null}
+
+        {result.bindingConstraints.length ? (
+          <ReportSection title="5. What's actually constraining this result">
+            <div className="tableScroller">
+              <table>
+                <tbody>
+                  {result.bindingConstraints.map((b) => (
+                    <tr key={b.label}><td>{b.label}</td><td>{b.detail}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ReportSection>
+        ) : null}
+
+        {result.benchmarkComparison ? (
+          <ReportSection title="6. Benchmark comparison">
+            <p>
+              Against <b>{result.benchmarkComparison.displayName}</b>: {result.benchmarkComparison.excessReturnPct >= 0 ? "excess return of" : "shortfall of"} <b>{pct.format(Math.abs(result.benchmarkComparison.excessReturnPct))}%</b>,
+              tracking error <b>{pct.format(result.benchmarkComparison.trackingErrorPct)}%</b>.
+            </p>
+          </ReportSection>
+        ) : null}
+
+        {result.blackLitterman && request?.blackLitterman ? (
+          <ReportSection title="7. Black-Litterman inputs">
+            <p>Risk aversion (&delta;): <b>{request.blackLitterman.riskAversion}</b>. Tau (&tau;): <b>{request.blackLitterman.tau}</b>. Benchmark expected return: <b>{request.blackLitterman.benchmarkExpectedReturnPct}%</b>.</p>
+            <div className="tableScroller">
+              <table>
+                <thead><tr><th>View</th><th>Value</th><th>Confidence</th></tr></thead>
+                <tbody>
+                  {request.blackLitterman.views.map((view) => (
+                    <tr key={view.key}>
+                      <td>
+                        {nameOf(view.assetProjId1)} {view.viewType === "absolute" ? "will return" : `will outperform ${view.assetProjId2 ? nameOf(view.assetProjId2) : "-"} by`}
+                      </td>
+                      <td>{view.adjustedPerformancePct}%</td>
+                      <td>{view.confidence}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ReportSection>
+        ) : null}
+
+        <ReportSection title="8. Performance results">
           <div className="tableScroller">
             <table>
               <thead><tr><th>Metric</th>{result.performanceSummary.map((c) => <th key={c.label}>{c.label}</th>)}</tr></thead>
@@ -1144,7 +1251,7 @@ function ReportTab({ result, compareLabel, nameOf, request }: { result: Optimize
           </div>
         </ReportSection>
 
-        <ReportSection title="5. Status">
+        <ReportSection title="9. Status">
           <p>Phase 4 mock &mdash; these numbers are deterministically generated from your inputs for UI review, not a real optimization. Phase 5 wires this to a real riskfolio-lib-backed backend.</p>
         </ReportSection>
       </section>
