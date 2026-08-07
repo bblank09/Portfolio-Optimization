@@ -15,6 +15,10 @@ export interface SecFundAllocation {
   // separate step. Unused by the backtester.
   min_weight_pct?: number;
   max_weight_pct?: number;
+  // Only populated when PortfolioStep's showGroupAssignment prop is set --
+  // confirmed live against PV: with "Group Constraints: Yes", a "Group"
+  // dropdown (None/A-F) sits in the same asset table as Min./Max. Weight.
+  group?: string;
 }
 
 export interface DataStatus {

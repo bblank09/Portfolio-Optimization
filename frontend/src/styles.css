@@ -247,6 +247,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
    default "Asset Constraints: Yes", Min./Max. Weight sit as two more
    columns in the same asset table, not a separate step. */
 .holdings-head.bounded, .holdings-row.bounded { grid-template-columns: 1fr 90px 80px 80px 34px; }
+/* Group column (OptimizeWorkspace, when Group Constraints is on) --
+   confirmed live: PV's Group dropdown sits after Min./Max. Weight in the
+   same table. */
+.holdings-head.grouped:not(.bounded), .holdings-row.grouped:not(.bounded) { grid-template-columns: 1fr 110px 90px 34px; }
+.holdings-head.bounded.grouped, .holdings-row.bounded.grouped { grid-template-columns: 1fr 90px 80px 80px 90px 34px; }
 /* padding-left matches .field's own 10px left padding (line ~251) so each
    header label sits directly above the text inside its input, not offset
    by the input's internal padding. */
@@ -258,10 +263,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     padding: 12px; border: 1px solid var(--border); border-radius: var(--r-md);
   }
   .holdings-row.bounded { grid-template-areas: "fund" "weight" "min" "max" "remove"; }
+  .holdings-row.grouped:not(.bounded) { grid-template-areas: "fund" "weight" "group" "remove"; }
+  .holdings-row.bounded.grouped { grid-template-areas: "fund" "weight" "min" "max" "group" "remove"; }
   .holdings-row .fund-field { grid-area: fund; }
   .holdings-row .weight-input { grid-area: weight; }
   .holdings-row .min-weight-input { grid-area: min; }
   .holdings-row .max-weight-input { grid-area: max; }
+  .holdings-row .group-select { grid-area: group; }
   .holdings-row .remove-row { grid-area: remove; justify-self: end; }
 }
 .field { border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 8px 10px; background: var(--surface-2); color: var(--text-primary); width: 100%; }

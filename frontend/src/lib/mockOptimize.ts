@@ -70,15 +70,21 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
 
   // Per-asset synthetic expected return / volatility, loosely bucketed by
   // policy_desc so equity-labeled funds read higher-return/higher-vol than
-  // fixed-income-labeled ones -- plausible-looking, not computed.
+  // fixed-income-labeled ones -- plausible-looking, not computed. When
+  // useHistoricalReturns is off, honor the user's own per-fund override
+  // (Step 2's "Expected return per fund" table) instead of the synthetic
+  // value -- otherwise that field would be pure decoration.
   const perAsset = funds.map((fund) => {
     const equityish = /ตราสารทุน|ผสม/.test(fund.policy_desc);
     const baseReturn = equityish ? 8 + rand() * 6 : 2 + rand() * 3;
     const baseVol = equityish ? 12 + rand() * 10 : 3 + rand() * 4;
-    return { fund, expectedReturnPct: baseReturn, volatilityPct: baseVol };
+    const expectedReturnPct = !request.useHistoricalReturns && request.expectedReturnOverrides[fund.proj_id] !== undefined
+      ? request.expectedReturnOverrides[fund.proj_id]
+      : baseReturn;
+    return { fund, expectedReturnPct, volatilityPct: baseVol };
   });
 
-  const optimalWeights = allocateWeights(perAsset, request, rand);
+  const optimalWeights = applyGroupMaxClamp(allocateWeights(perAsset, request, rand), request);
   const compareWeights = buildCompareWeights(perAsset, request.constraints.compareAgainst);
   const riskContributionPct = deriveRiskContribution(perAsset, optimalWeights);
   const frontier = buildFrontier(perAsset, rand);
@@ -139,7 +145,59 @@ function evaluateFeasibility(request: OptimizeRequest): { status: FeasibilitySta
       message: `Max holdings (${request.constraints.maxHoldings}) is less than the number of selected funds (${request.funds.length}) while a minimum weight is also set -- the solver has no valid combination that satisfies both. Raise max holdings, remove the minimum weights, or deselect funds.`
     };
   }
+  if (request.constraints.groupConstraintsEnabled) {
+    for (const id of Object.keys(request.assetGroups) as (keyof typeof request.assetGroups)[]) {
+      const group = request.assetGroups[id];
+      const memberCount = request.funds.filter((fund) => request.fundGroups[fund.proj_id] === id).length;
+      if (group.minWeightPct > 0 && memberCount === 0) {
+        return {
+          status: "infeasible_constraints",
+          message: `Group ${id}${group.name ? ` (${group.name})` : ""} has a minimum weight of ${group.minWeightPct}% but no funds are assigned to it. Assign a fund to group ${id} in the Portfolio step, or clear its minimum.`
+        };
+      }
+      if (group.minWeightPct > group.maxWeightPct) {
+        return {
+          status: "infeasible_constraints",
+          message: `Group ${id}${group.name ? ` (${group.name})` : ""} has a minimum weight (${group.minWeightPct}%) greater than its maximum (${group.maxWeightPct}%).`
+        };
+      }
+    }
+  }
   return { status: "ok", message: null };
+}
+
+// Approximate group-level cap: if a group's total exceeds its Max %, scale
+// that group's members down to hit it and spread the freed percentage
+// across every fund outside the group, proportional to their existing
+// weight. This does not re-check those funds' own max bounds while
+// redistributing (a full simultaneous fund+group constrained solve is out
+// of scope for a Phase 4 mock) -- Phase 5's real optimizer would enforce
+// both simultaneously. Group minimums are only feasibility-checked
+// upstream (evaluateFeasibility), not enforced here.
+function applyGroupMaxClamp(weights: Record<string, number>, request: OptimizeRequest): Record<string, number> {
+  if (!request.constraints.groupConstraintsEnabled) return weights;
+  let result = { ...weights };
+  for (const id of Object.keys(request.assetGroups) as (keyof typeof request.assetGroups)[]) {
+    const group = request.assetGroups[id];
+    const memberIds = request.funds.filter((fund) => request.fundGroups[fund.proj_id] === id).map((fund) => fund.proj_id);
+    if (!memberIds.length) continue;
+    const groupTotal = memberIds.reduce((sum, projId) => sum + (result[projId] ?? 0), 0);
+    if (groupTotal <= group.maxWeightPct || groupTotal <= 0) continue;
+    const scale = group.maxWeightPct / groupTotal;
+    const freed = groupTotal - group.maxWeightPct;
+    const outsideIds = Object.keys(result).filter((projId) => !memberIds.includes(projId));
+    const outsideTotal = outsideIds.reduce((sum, projId) => sum + (result[projId] ?? 0), 0);
+    const next: Record<string, number> = { ...result };
+    for (const projId of memberIds) next[projId] = (result[projId] ?? 0) * scale;
+    for (const projId of outsideIds) {
+      const share = outsideTotal > 0 ? (result[projId] ?? 0) / outsideTotal : 1 / outsideIds.length;
+      next[projId] = (result[projId] ?? 0) + freed * share;
+    }
+    result = next;
+  }
+  const rounded: Record<string, number> = {};
+  for (const [id, w] of Object.entries(result)) rounded[id] = Number(w.toFixed(2));
+  return rounded;
 }
 
 function allocateWeights(

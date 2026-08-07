@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { Play, Plus, Trash2 } from "lucide-react";
 import type { SecFund } from "../types/backtest";
+import { ASSET_GROUP_IDS } from "../types/optimize";
 import type {
+  AssetGroup,
+  AssetGroupId,
   BlackLittermanView,
   CompareAgainst,
   CovarianceMethod,
@@ -69,6 +72,18 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
     onChange({ ...request, constraints: { ...request.constraints, ...next } });
   }
 
+  function patchTimePeriod(next: Partial<OptimizeRequest["timePeriod"]>) {
+    onChange({ ...request, timePeriod: { ...request.timePeriod, ...next } });
+  }
+
+  function setExpectedReturnOverride(projId: string, value: number) {
+    onChange({ ...request, expectedReturnOverrides: { ...request.expectedReturnOverrides, [projId]: value } });
+  }
+
+  function patchAssetGroup(id: AssetGroupId, next: Partial<AssetGroup>) {
+    onChange({ ...request, assetGroups: { ...request.assetGroups, [id]: { ...request.assetGroups[id], ...next } } });
+  }
+
   function setGoal(goal: ObjectiveGoal) {
     const blackLitterman = goal === "black_litterman"
       ? (request.blackLitterman ?? { riskAversion: 2.5, tau: 0.05, benchmarkExpectedReturnPct: 7, views: [] })
@@ -109,6 +124,21 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
       <div className="page-head">
         <h1>Set the optimization objective</h1>
         <p>Choose what "optimal" means for this shortlist, then set constraints. Every field here maps to a documented method in <code>docs/optimization-assumptions.md</code>.</p>
+      </div>
+
+      <div className="card">
+        <div className="section-title">Time period</div>
+        <p className="field-hint">Confirmed live on PV's optimize-portfolio tool: Start/End Year is a required input alongside the assets themselves -- kept as dates here (not year-only) since the SEC NAV cache is already month-level.</p>
+        <div className="form-grid">
+          <div className="form-field">
+            <label htmlFor="periodStart">Start date</label>
+            <input className="field" id="periodStart" onChange={(event) => patchTimePeriod({ startDate: event.target.value })} type="date" value={request.timePeriod.startDate} />
+          </div>
+          <div className="form-field">
+            <label htmlFor="periodEnd">End date</label>
+            <input className="field" id="periodEnd" onChange={(event) => patchTimePeriod({ endDate: event.target.value })} type="date" value={request.timePeriod.endDate} />
+          </div>
+        </div>
       </div>
 
       <div className="card">
@@ -215,7 +245,56 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
               <option value="false">No</option>
             </select>
           </div>
+          <div className="form-field">
+            <label htmlFor="useHistoricalVolatility">Use historical volatility</label>
+            <select
+              className="field"
+              id="useHistoricalVolatility"
+              onChange={(event) => patch({ useHistoricalVolatility: event.target.value === "true" })}
+              value={String(request.useHistoricalVolatility)}
+            >
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+          <div className="form-field">
+            <label htmlFor="useHistoricalCorrelations">Use historical correlations</label>
+            <select
+              className="field"
+              id="useHistoricalCorrelations"
+              onChange={(event) => patch({ useHistoricalCorrelations: event.target.value === "true" })}
+              value={String(request.useHistoricalCorrelations)}
+            >
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+            <p className="field-hint">PV exposes these as three separate toggles (returns/volatility/correlations), not one -- confirmed live.</p>
+          </div>
         </div>
+
+        {!request.useHistoricalReturns ? (
+          <>
+            <div className="section-title" style={{ marginTop: 20 }}>Expected return per fund</div>
+            <p className="field-hint">Confirmed live: PV reveals an "Expected Return" input column per asset when Use Historical Returns is No.</p>
+            <div className="holdings-table">
+              <div className="holdings-head" style={{ gridTemplateColumns: "1fr 120px" }}>
+                <span>Fund</span><span>Expected return (%)</span>
+              </div>
+              {selectedFunds.map((fund) => (
+                <div className="holdings-row" key={fund.proj_id} style={{ gridTemplateColumns: "1fr 120px" }}>
+                  <span className="field-static">{fund.display_name}</span>
+                  <input
+                    className="field num"
+                    onChange={(event) => setExpectedReturnOverride(fund.proj_id, Number(event.target.value))}
+                    step={0.1}
+                    type="number"
+                    value={request.expectedReturnOverrides[fund.proj_id] ?? 0}
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
       </div>
 
       {isBlackLitterman && request.blackLitterman ? (
@@ -299,7 +378,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
               <option value="false">No</option>
               <option value="true">Yes</option>
             </select>
-            <p className="field-hint">Caps exposure per fund category (policy_desc), the same grouping used in the Step 1 shortlist filters.</p>
+            <p className="field-hint">Confirmed live: turns on a Group dropdown (None/A-F) back in the Portfolio step's asset table, plus the Asset Groups bounds below -- not a category-based auto-grouping.</p>
           </div>
           <div className="form-field">
             <label htmlFor="maxHoldings">Max holdings</label>
@@ -310,6 +389,26 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
             <input className="field num" id="riskFreeRate" min={0} onChange={(event) => patchConstraints({ riskFreeRatePct: Number(event.target.value) })} step={0.1} type="number" value={request.constraints.riskFreeRatePct} />
           </div>
         </div>
+
+        {request.constraints.groupConstraintsEnabled ? (
+          <>
+            <div className="section-title" style={{ marginTop: 20 }}>Asset groups</div>
+            <p className="field-hint">Confirmed live: PV's Asset Groups table has 6 fixed slots (A-F), each with its own name and Min./Max. Weight -- assign funds to a group back in the Portfolio step.</p>
+            <div className="holdings-table">
+              <div className="holdings-head" style={{ gridTemplateColumns: "40px 1fr 90px 90px" }}>
+                <span /><span>Group name</span><span>Min %</span><span>Max %</span>
+              </div>
+              {ASSET_GROUP_IDS.map((id) => (
+                <div className="holdings-row" key={id} style={{ gridTemplateColumns: "40px 1fr 90px 90px" }}>
+                  <span className="field-static">{id}</span>
+                  <input className="field" onChange={(event) => patchAssetGroup(id, { name: event.target.value })} placeholder={`Full name for group ${id}`} value={request.assetGroups[id].name} />
+                  <input className="field num" min={0} onChange={(event) => patchAssetGroup(id, { minWeightPct: Number(event.target.value) })} type="number" value={request.assetGroups[id].minWeightPct} />
+                  <input className="field num" max={100} min={0} onChange={(event) => patchAssetGroup(id, { maxWeightPct: Number(event.target.value) })} type="number" value={request.assetGroups[id].maxWeightPct} />
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
 
         <div className={advancedOpen ? "advanced-toggle open" : "advanced-toggle"} onClick={() => setAdvancedOpen((open) => !open)}>
           <span className="chev">&#9654;</span> Rolling-window validation &amp; comparison

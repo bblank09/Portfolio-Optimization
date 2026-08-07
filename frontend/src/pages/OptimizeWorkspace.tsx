@@ -7,7 +7,8 @@ import { RunOverlay } from "../components/RunOverlay";
 import { Stepper } from "../components/Stepper";
 import { runMockOptimize } from "../lib/mockOptimize";
 import type { SecFund, SecFundAllocation } from "../types/backtest";
-import type { OptimizeRequest, OptimizeResult } from "../types/optimize";
+import { ASSET_GROUP_IDS } from "../types/optimize";
+import type { AssetGroup, AssetGroupId, OptimizeRequest, OptimizeResult } from "../types/optimize";
 
 const COMPARE_LABELS: Record<OptimizeRequest["constraints"]["compareAgainst"], string | null> = {
   none: null,
@@ -17,14 +18,29 @@ const COMPARE_LABELS: Record<OptimizeRequest["constraints"]["compareAgainst"], s
   risk_parity: "Risk Parity Weighted"
 };
 
+function defaultAssetGroups(): Record<AssetGroupId, AssetGroup> {
+  const groups = {} as Record<AssetGroupId, AssetGroup>;
+  for (const id of ASSET_GROUP_IDS) groups[id] = { name: "", minWeightPct: 0, maxWeightPct: 100 };
+  return groups;
+}
+
+// Reasonable default window: about 5 years back from the SEC cache's
+// approximate freshness -- the sibling backtester's own AssumptionsStep
+// uses the same "recent N years" framing for its range presets.
 const initialRequest: OptimizeRequest = {
   funds: [],
   fundBounds: {},
+  fundGroups: {},
+  assetGroups: defaultAssetGroups(),
+  timePeriod: { startDate: "2020-01-31", endDate: "2026-07-31" },
   goal: "max_sharpe",
   riskMeasure: "std_dev",
   targetAnnualVolatilityPct: 10,
   robustOptimization: false,
   useHistoricalReturns: true,
+  useHistoricalVolatility: true,
+  useHistoricalCorrelations: true,
+  expectedReturnOverrides: {},
   returnMethod: "historical_mean",
   covarianceMethod: "sample",
   blackLitterman: null,
@@ -89,13 +105,15 @@ export function OptimizeWorkspace() {
       .map((a) => funds.find((f) => f.proj_id === a.proj_id))
       .filter((f): f is SecFund => Boolean(f));
     const fundBounds: OptimizeRequest["fundBounds"] = {};
+    const fundGroups: OptimizeRequest["fundGroups"] = {};
     for (const asset of assets) {
       fundBounds[asset.proj_id] = {
         minWeightPct: asset.min_weight_pct ?? 0,
         maxWeightPct: asset.max_weight_pct ?? 100
       };
+      fundGroups[asset.proj_id] = (asset.group as OptimizeRequest["fundGroups"][string]) ?? "None";
     }
-    setRequest((current) => ({ ...current, funds: chosen, fundBounds }));
+    setRequest((current) => ({ ...current, funds: chosen, fundBounds, fundGroups }));
   }
 
   function updateRequest(next: OptimizeRequest) {
@@ -145,7 +163,15 @@ export function OptimizeWorkspace() {
       </header>
 
       <div className="main">
-        <PortfolioStep active={currentStep === 0} funds={funds} onAssetsChange={handleAssetsChange} onContinue={() => advanceTo(1)} showWeightBounds weightsOptional />
+        <PortfolioStep
+          active={currentStep === 0}
+          funds={funds}
+          onAssetsChange={handleAssetsChange}
+          onContinue={() => advanceTo(1)}
+          showGroupAssignment={request.constraints.groupConstraintsEnabled}
+          showWeightBounds
+          weightsOptional
+        />
 
         <OptimizeAssumptionsStep
           active={currentStep === 1}

@@ -63,6 +63,26 @@ export interface FundBound {
   maxWeightPct: number;
 }
 
+// A-F fixed slots, matching PV's own Asset Groups table exactly (confirmed
+// live: Group Constraints: Yes reveals 6 named groups, each with its own
+// Min./Max. Weight).
+export type AssetGroupId = "A" | "B" | "C" | "D" | "E" | "F";
+export const ASSET_GROUP_IDS: AssetGroupId[] = ["A", "B", "C", "D", "E", "F"];
+
+export interface AssetGroup {
+  name: string; // blank = unnamed, matches PV's blank-by-default group names
+  minWeightPct: number;
+  maxWeightPct: number;
+}
+
+export interface TimePeriod {
+  startDate: string; // ISO date -- more granular than PV's Start Year
+  // dropdown, since the SEC NAV cache is already month-level; kept as
+  // dates (matching the sibling backtester's own date fields) rather than
+  // reproducing PV's year-only granularity.
+  endDate: string;
+}
+
 export interface OptimizeRequest {
   funds: SecFund[]; // the Step 1 shortlist
   // Per-fund weight bounds set directly in the Step 1 asset table --
@@ -71,11 +91,21 @@ export interface OptimizeRequest {
   // step). Falls back to constraints.minWeightPct/maxWeightPct for any
   // fund without an entry here.
   fundBounds: Record<string, FundBound>;
+  // Per-fund group assignment (Step 1), only meaningful when
+  // constraints.groupConstraintsEnabled is true. "None" = ungrouped.
+  fundGroups: Record<string, AssetGroupId | "None">;
+  assetGroups: Record<AssetGroupId, AssetGroup>;
+  timePeriod: TimePeriod;
   goal: ObjectiveGoal;
   riskMeasure: RiskMeasure;
   targetAnnualVolatilityPct: number | null; // only used with max_return_target_vol
   robustOptimization: boolean; // PV's literal Monte Carlo resampling toggle -- the "robustness indicator"
   useHistoricalReturns: boolean;
+  useHistoricalVolatility: boolean;
+  useHistoricalCorrelations: boolean;
+  // Only read when useHistoricalReturns is false -- confirmed live: PV
+  // reveals an "Expected Return" column per asset in that case.
+  expectedReturnOverrides: Record<string, number>;
   returnMethod: ReturnEstimationMethod;
   covarianceMethod: CovarianceMethod;
   blackLitterman: BlackLittermanInputs | null; // present only when goal === "black_litterman"

@@ -12,7 +12,12 @@ interface Row {
   // "unconstrained" (matches PortfolioVisualizer's blank-field default).
   minWeight: number;
   maxWeight: number;
+  // Only rendered/emitted when showGroupAssignment is set. "None" matches
+  // PV's own default (blank/None) group assignment.
+  group: string;
 }
+
+export const ASSET_GROUP_OPTIONS = ["None", "A", "B", "C", "D", "E", "F"];
 
 interface Facet {
   value: string;
@@ -83,6 +88,9 @@ interface Props {
   // Min./Max. Weight columns sit in the same Portfolio Assets table as
   // fund pick + allocation, not deferred to a separate constraints step.
   showWeightBounds?: boolean;
+  // Default false. OptimizeWorkspace passes request.constraints.groupConstraintsEnabled
+  // (dynamic -- set from Step 2, then reflected here if the user goes back).
+  showGroupAssignment?: boolean;
 }
 
 const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
@@ -93,8 +101,8 @@ function nextKey() {
   return `row-${rowSeq}`;
 }
 
-export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weightsOptional = false, showWeightBounds = false }: Props) {
-  const [rows, setRows] = useState<Row[]>([{ key: nextKey(), projId: "", weight: 0, query: "", minWeight: 0, maxWeight: 100 }]);
+export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weightsOptional = false, showWeightBounds = false, showGroupAssignment = false }: Props) {
+  const [rows, setRows] = useState<Row[]>([{ key: nextKey(), projId: "", weight: 0, query: "", minWeight: 0, maxWeight: 100, group: "None" }]);
   const [amcFilter, setAmcFilter] = useState<Set<string>>(new Set());
   const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
   const seededRef = useRef(false);
@@ -152,17 +160,18 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
         proj_id: row.projId,
         display_name: fundsById.get(row.projId)?.display_name ?? row.query,
         weight: row.weight,
-        ...(showWeightBounds ? { min_weight_pct: row.minWeight, max_weight_pct: row.maxWeight } : {})
+        ...(showWeightBounds ? { min_weight_pct: row.minWeight, max_weight_pct: row.maxWeight } : {}),
+        ...(showGroupAssignment ? { group: row.group } : {})
       }));
     onAssetsChange(assets);
   }
 
   function seedRows(picks: { fund: SecFund; weight: number }[]) {
-    commit(picks.map(({ fund, weight }) => ({ key: nextKey(), projId: fund.proj_id, weight, query: fund.display_name, minWeight: 0, maxWeight: 100 })));
+    commit(picks.map(({ fund, weight }) => ({ key: nextKey(), projId: fund.proj_id, weight, query: fund.display_name, minWeight: 0, maxWeight: 100, group: "None" })));
   }
 
   function addRow() {
-    commit([...rows, { key: nextKey(), projId: "", weight: 0, query: "", minWeight: 0, maxWeight: 100 }]);
+    commit([...rows, { key: nextKey(), projId: "", weight: 0, query: "", minWeight: 0, maxWeight: 100, group: "None" }]);
   }
 
   function removeRow(key: string) {
@@ -192,6 +201,10 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
 
   function setMaxWeight(key: string, maxWeight: number) {
     commit(rows.map((row) => (row.key === key ? { ...row, maxWeight } : row)));
+  }
+
+  function setGroup(key: string, group: string) {
+    commit(rows.map((row) => (row.key === key ? { ...row, group } : row)));
   }
 
   // Equal weight / normalize / clear are the standard bulk-allocation actions
@@ -239,6 +252,11 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
   const complete = allNamed && weightsReady && committedRows.length > 0;
   const selectedIds = new Set(rows.map((row) => row.projId));
 
+  function gridClass(base: string): string {
+    const modifiers = [showWeightBounds ? "bounded" : "", showGroupAssignment ? "grouped" : ""].filter(Boolean);
+    return [base, ...modifiers].join(" ");
+  }
+
   function handlePageKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "Enter" || event.defaultPrevented || !complete) return;
     // A row's own combobox already handled Enter (calling preventDefault) if
@@ -264,8 +282,8 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
           <button className="link-btn" onClick={loadExample} type="button">Load an example portfolio</button>
         </div>
 
-        <div className={showWeightBounds ? "holdings-table bounded" : "holdings-table"}>
-          <div className={showWeightBounds ? "holdings-head bounded" : "holdings-head"}>
+        <div className={gridClass("holdings-table")}>
+          <div className={gridClass("holdings-head")}>
             <div>SEC Fund</div>
             {/* Same single-line label either way -- the earlier
                 "(optional)" suffix wrapped to a second line and threw off
@@ -275,6 +293,7 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
             <div>Weight %</div>
             {showWeightBounds ? <div>Min %</div> : null}
             {showWeightBounds ? <div>Max %</div> : null}
+            {showGroupAssignment ? <div>Group</div> : null}
             <div />
           </div>
           {rows.map((row) => (
@@ -299,6 +318,8 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
               showWeightBounds={showWeightBounds}
               onMinWeightChange={(minWeight) => setMinWeight(row.key, minWeight)}
               onMaxWeightChange={(maxWeight) => setMaxWeight(row.key, maxWeight)}
+              showGroupAssignment={showGroupAssignment}
+              onGroupChange={(group) => setGroup(row.key, group)}
             />
           ))}
         </div>
@@ -354,7 +375,9 @@ function HoldingsRow({
   onRemove,
   showWeightBounds,
   onMinWeightChange,
-  onMaxWeightChange
+  onMaxWeightChange,
+  showGroupAssignment,
+  onGroupChange
 }: {
   row: Row;
   funds: SecFund[];
@@ -375,6 +398,8 @@ function HoldingsRow({
   showWeightBounds?: boolean;
   onMinWeightChange?: (minWeight: number) => void;
   onMaxWeightChange?: (maxWeight: number) => void;
+  showGroupAssignment?: boolean;
+  onGroupChange?: (group: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -430,7 +455,7 @@ function HoldingsRow({
   }
 
   return (
-    <div className={showWeightBounds ? "holdings-row bounded" : "holdings-row"}>
+    <div className={["holdings-row", showWeightBounds ? "bounded" : "", showGroupAssignment ? "grouped" : ""].filter(Boolean).join(" ")}>
       <div className="fund-field" onBlur={handleBlur} ref={fieldRef}>
         <input
           aria-activedescendant={open && visibleOptions[highlight] ? optionId(highlight) : undefined}
@@ -528,6 +553,16 @@ function HoldingsRow({
           value={row.maxWeight}
           onChange={(event) => onMaxWeightChange?.(Number(event.target.value))}
         />
+      ) : null}
+      {showGroupAssignment ? (
+        <select
+          aria-label="Group assignment for this fund"
+          className="field group-select"
+          onChange={(event) => onGroupChange?.(event.target.value)}
+          value={row.group}
+        >
+          {ASSET_GROUP_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
       ) : null}
       <button aria-label="Remove fund row" className="icon-btn remove-row" disabled={!canRemove} onClick={onRemove} type="button">
         <X size={15} />
