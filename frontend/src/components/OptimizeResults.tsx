@@ -439,7 +439,22 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
   const width = 640;
   const height = 320;
   const padding = 40;
-  const markers = [result.optimalPoint, result.gmvPoint, result.tangencyPoint].filter((m): m is NonNullable<typeof m> => Boolean(m));
+  // With a small shortlist the global-minimum-variance point and the
+  // max-Sharpe (tangency) point can legitimately coincide (the leftmost
+  // frontier point is sometimes also the highest-Sharpe one) -- drawing
+  // both as separate same-size circles at the same pixel position means
+  // one silently covers the other, so the legend lists two markers but
+  // only one is visible on the chart. Merge markers that land on (nearly)
+  // the same point into a single combined marker instead.
+  const rawMarkers = [result.optimalPoint, result.gmvPoint, result.tangencyPoint].filter((m): m is NonNullable<typeof m> => Boolean(m));
+  const markers = rawMarkers.reduce<typeof rawMarkers>((merged, marker) => {
+    const dup = merged.find((m) => Math.abs(m.volatilityPct - marker.volatilityPct) < 0.05 && Math.abs(m.expectedReturnPct - marker.expectedReturnPct) < 0.05);
+    if (dup) {
+      dup.label = `${dup.label} = ${marker.label}`;
+      return merged;
+    }
+    return [...merged, { ...marker }];
+  }, []);
   // PV's own frontier chart plots each individual asset at its own
   // (volatility, return) coordinate, not just the frontier curve and a
   // couple of named portfolios -- shows at a glance how much the
@@ -459,6 +474,14 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
     "Global minimum variance": "#0ea5e9",
     "Max Sharpe (tangency)": "#92620a"
   };
+  // Merged labels ("A = B") won't exact-match markerColors -- fall back to
+  // whichever known marker name the merged label contains, keeping a
+  // consistent, recognizable color instead of the generic var(--text).
+  function colorForMarker(label: string): string {
+    if (markerColors[label]) return markerColors[label];
+    const match = Object.keys(markerColors).find((key) => label.includes(key));
+    return match ? markerColors[match] : "var(--text)";
+  }
 
   return (
     <div className="tabStack">
@@ -478,7 +501,7 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
               </g>
             ))}
             {markers.map((m) => (
-              <circle cx={x(m.volatilityPct)} cy={y(m.expectedReturnPct)} fill={markerColors[m.label] ?? "var(--text)"} key={m.label} r={5} stroke="var(--bg)" strokeWidth={2} />
+              <circle cx={x(m.volatilityPct)} cy={y(m.expectedReturnPct)} fill={colorForMarker(m.label)} key={m.label} r={5} stroke="var(--bg)" strokeWidth={2} />
             ))}
             <text className="axisText" x={width / 2} y={height - 6}>Volatility (%)</text>
             <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Expected return (%)</text>
@@ -487,7 +510,7 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
           {markers.map((m) => (
             <div key={m.label} style={{ alignItems: "center", display: "flex", fontSize: 12.5, gap: 6 }}>
-              <span style={{ background: markerColors[m.label] ?? "var(--text)", borderRadius: "50%", display: "inline-block", height: 10, width: 10 }} />
+              <span style={{ background: colorForMarker(m.label), borderRadius: "50%", display: "inline-block", height: 10, width: 10 }} />
               {m.label} ({pct.format(m.volatilityPct)}% vol, {pct.format(m.expectedReturnPct)}% return)
             </div>
           ))}
