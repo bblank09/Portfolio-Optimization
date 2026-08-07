@@ -128,7 +128,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
 
       <div className="card">
         <div className="section-title">Time period</div>
-        <p className="field-hint">The historical window used to estimate returns, volatility, and correlations for every selected fund.</p>
         <div className="form-grid">
           <div className="form-field">
             <label htmlFor="periodStart">Start date</label>
@@ -161,7 +160,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
         <div className="form-grid">
           <div className="form-field">
             <label htmlFor="riskMeasure">Risk measure</label>
-            <p className="field-hint">CDaR ties directly to the Drawdown view in the Results tabs -- the same drawdown concept, used here as the risk measure.</p>
             <select
               className="field"
               id="riskMeasure"
@@ -176,7 +174,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           {isTargetVol ? (
             <div className="form-field">
               <label htmlFor="targetVol">Targeted annual volatility (%)</label>
-              <p className="field-hint">Constrains the risky-asset mix directly to hit this volatility ceiling -- it does not shift the portfolio into cash.</p>
               <input
                 className="field num"
                 id="targetVol"
@@ -217,7 +214,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           </div>
           <div className="form-field">
             <label htmlFor="robustOptimization">Robust Optimization</label>
-            <p className="field-hint">Resamples the optimization inputs to reduce sensitivity to estimation error and improve diversification.</p>
             <select
               className="field"
               id="robustOptimization"
@@ -254,7 +250,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           </div>
           <div className="form-field">
             <label htmlFor="useHistoricalCorrelations">Use historical correlations</label>
-            <p className="field-hint">Set independently -- you can use historical returns while overriding volatility or correlations, or vice versa.</p>
             <select
               className="field"
               id="useHistoricalCorrelations"
@@ -270,7 +265,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
         {!request.useHistoricalReturns ? (
           <>
             <div className="section-title" style={{ marginTop: 20 }}>Expected return per fund</div>
-            <p className="field-hint">Set your own expected return per fund instead of the historical average.</p>
             <div className="holdings-table">
               <div className="holdings-head" style={{ gridTemplateColumns: "1fr 120px" }}>
                 <span>Fund</span><span>Expected return (%)</span>
@@ -295,7 +289,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
       {isBlackLitterman && request.blackLitterman ? (
         <div className="card">
           <div className="section-title">Black-Litterman inputs</div>
-          <p className="field-hint">Benchmark weights first (equal-weighted from your shortlist by default), then the views that adjust the equilibrium returns.</p>
           <div className="form-grid">
             <div className="form-field">
               <label htmlFor="riskAversion">Risk aversion (&delta;)</label>
@@ -303,7 +296,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
             </div>
             <div className="form-field">
               <label htmlFor="tau">Tau (&tau;)</label>
-              <p className="field-hint">Controls how much weight the market-equilibrium prior carries versus your views. Typical range: 0.01-1. Default 0.05.</p>
               <input className="field num" id="tau" max={1} min={0.01} onChange={(event) => patchBl({ tau: Number(event.target.value) })} step={0.01} type="number" value={request.blackLitterman.tau} />
             </div>
             <div className="form-field">
@@ -360,7 +352,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           </div>
           <div className="form-field">
             <label htmlFor="minWeight">Default min weight (%)</label>
-            <p className="field-hint">Used for any fund without its own Min % set in the Portfolio step -- per-fund bounds there take priority.</p>
             <input className="field num" id="minWeight" min={0} onChange={(event) => patchConstraints({ minWeightPct: Number(event.target.value) })} step={0.5} type="number" value={request.constraints.minWeightPct} />
           </div>
           <div className="form-field">
@@ -369,7 +360,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           </div>
           <div className="form-field">
             <label htmlFor="groupConstraints">Group Constraints</label>
-            <p className="field-hint">Adds a Group dropdown (None/A-F) to each fund in the Portfolio step, plus the group-level bounds below.</p>
             <select className="field" id="groupConstraints" onChange={(event) => patchConstraints({ groupConstraintsEnabled: event.target.value === "true" })} value={String(request.constraints.groupConstraintsEnabled)}>
               <option value="false">No</option>
               <option value="true">Yes</option>
@@ -388,7 +378,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
         {request.constraints.groupConstraintsEnabled ? (
           <>
             <div className="section-title" style={{ marginTop: 20 }}>Asset groups</div>
-            <p className="field-hint">6 fixed groups (A-F), each with its own name and weight bounds. Assign funds to a group in the Portfolio step.</p>
             <div className="holdings-table">
               <div className="holdings-head" style={{ gridTemplateColumns: "40px 1fr 90px 90px" }}>
                 <span /><span>Group name</span><span>Min %</span><span>Max %</span>
@@ -412,7 +401,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           <div className="form-grid">
             <div className="form-field">
               <label htmlFor="lookback">Lookback period</label>
-              <p className="field-hint">Re-optimizes on a fixed trailing window at the chosen frequency, then scores realized performance on the next period.</p>
               <select className="field" id="lookback" onChange={(event) => patchConstraints({ lookbackPeriodMonths: Number(event.target.value) as OptimizeRequest["constraints"]["lookbackPeriodMonths"] })} value={request.constraints.lookbackPeriodMonths}>
                 <option value={12}>12 months</option>
                 <option value={24}>24 months</option>
