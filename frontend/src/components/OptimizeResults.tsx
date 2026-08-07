@@ -1135,134 +1135,193 @@ function ReportTab({ result, compareLabel, nameOf, request }: { result: Optimize
         <h3>Optimization Report</h3>
         <p className="footnote">Generated {result.generatedAt} &middot; mock data, Phase 4 &mdash; no real optimization has run yet</p>
 
-        <ReportSection title="1. Objective">
-          <p>Risk measure: <b>{result.selectedRiskMeasure.label}</b> (achieved value: {pct.format(result.selectedRiskMeasure.optimizedValue)}%). {compareLabel ? `Compared against ${compareLabel}.` : "No comparison allocation was selected."}</p>
-        </ReportSection>
-
-        <ReportSection title="2. Data and methodology">
-          {request ? (
-            <p>
-              Time period: <b>{request.timePeriod.startDate}</b> to <b>{request.timePeriod.endDate}</b> ({request.dataFrequency} data).
-              Return method: <b>{request.returnMethod.replace(/_/g, " ")}</b>. Covariance method: <b>{request.covarianceMethod}</b>.
-              Risk-free rate: <b>{request.constraints.riskFreeRatePct}%/yr</b>.
-              {request.constraints.longOnly ? " Long-only." : " Short positions permitted."}
-              {" "}Default weight bounds: <b>{request.constraints.minWeightPct}%</b> to <b>{request.constraints.maxWeightPct}%</b> per fund.
-              {request.constraints.groupConstraintsEnabled ? " Group constraints enabled." : ""}
-              {request.constraints.maxTurnoverPct !== null ? ` Max turnover: ${request.constraints.maxTurnoverPct}% per rebalance.` : ""}
-              {request.constraints.maxTrackingErrorPct !== null ? ` Max tracking error: ${request.constraints.maxTrackingErrorPct}%.` : ""}
-              {" "}Re-validated every <b>{request.constraints.optimizationFrequency}</b> on a <b>{request.constraints.lookbackPeriodMonths}-month</b> lookback.
-            </p>
-          ) : (
-            <p>This run used the objective, risk measure, return/covariance estimation method, and constraints set in the Assumptions step.</p>
-          )}
-          <p className="footnote">See <code>docs/optimization-assumptions.md</code> and <code>docs/mock-ui-spec.md</code> for the sourced methodology behind every field.</p>
-        </ReportSection>
-
-        <ReportSection title="3. Optimal allocation">
-          <div className="tableScroller">
-            <table>
-              <thead><tr><th>Fund</th><th>Weight</th></tr></thead>
-              <tbody>
-                {Object.entries(result.optimalWeights).sort((a, b) => b[1] - a[1]).map(([id, w]) => (
-                  <tr key={id}><td>{nameOf(id)}</td><td>{pct.format(w)}%</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </ReportSection>
-
-        {result.tradeList.length ? (
-          <ReportSection title="4. Trade list to get there">
-            <p>From your current portfolio, reaching the optimal allocation needs <b>{pct.format(result.totalTurnoverPct)}%</b> one-way turnover.</p>
-            <div className="tableScroller">
-              <table>
-                <thead><tr><th>Fund</th><th>Current</th><th>Optimal</th><th>Change</th><th>Action</th></tr></thead>
-                <tbody>
-                  {result.tradeList.map((row) => (
-                    <tr key={row.projId}>
-                      <td>{row.displayName}</td>
-                      <td>{pct.format(row.currentWeightPct)}%</td>
-                      <td>{pct.format(row.optimalWeightPct)}%</td>
-                      <td>{row.deltaPct >= 0 ? "+" : ""}{pct.format(row.deltaPct)}%</td>
-                      <td>{row.action}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        {/* Section numbers are assigned dynamically (not hardcoded "4."/"5."
+            etc) because several sections only render when their data is
+            present (trade list needs a Step 1 current weight, binding
+            constraints only fire when a bound is actually hit, benchmark/BL
+            need those set in Assumptions). A hardcoded "1,2,3,8,9" gap when
+            the conditional sections don't apply reads as broken/missing
+            content, not as "nothing to show here". */}
+        {buildReportSections({ result, compareLabel, nameOf, request }).map((section, index) => (
+          <ReportSection index={index + 1} key={section.label} title={section.label}>
+            {section.content}
           </ReportSection>
-        ) : null}
-
-        {result.bindingConstraints.length ? (
-          <ReportSection title="5. What's actually constraining this result">
-            <div className="tableScroller">
-              <table>
-                <tbody>
-                  {result.bindingConstraints.map((b) => (
-                    <tr key={b.label}><td>{b.label}</td><td>{b.detail}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </ReportSection>
-        ) : null}
-
-        {result.benchmarkComparison ? (
-          <ReportSection title="6. Benchmark comparison">
-            <p>
-              Against <b>{result.benchmarkComparison.displayName}</b>: {result.benchmarkComparison.excessReturnPct >= 0 ? "excess return of" : "shortfall of"} <b>{pct.format(Math.abs(result.benchmarkComparison.excessReturnPct))}%</b>,
-              tracking error <b>{pct.format(result.benchmarkComparison.trackingErrorPct)}%</b>.
-            </p>
-          </ReportSection>
-        ) : null}
-
-        {result.blackLitterman && request?.blackLitterman ? (
-          <ReportSection title="7. Black-Litterman inputs">
-            <p>Risk aversion (&delta;): <b>{request.blackLitterman.riskAversion}</b>. Tau (&tau;): <b>{request.blackLitterman.tau}</b>. Benchmark expected return: <b>{request.blackLitterman.benchmarkExpectedReturnPct}%</b>.</p>
-            <div className="tableScroller">
-              <table>
-                <thead><tr><th>View</th><th>Value</th><th>Confidence</th></tr></thead>
-                <tbody>
-                  {request.blackLitterman.views.map((view) => (
-                    <tr key={view.key}>
-                      <td>
-                        {nameOf(view.assetProjId1)} {view.viewType === "absolute" ? "will return" : `will outperform ${view.assetProjId2 ? nameOf(view.assetProjId2) : "-"} by`}
-                      </td>
-                      <td>{view.adjustedPerformancePct}%</td>
-                      <td>{view.confidence}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </ReportSection>
-        ) : null}
-
-        <ReportSection title="8. Performance results">
-          <div className="tableScroller">
-            <table>
-              <thead><tr><th>Metric</th>{result.performanceSummary.map((c) => <th key={c.label}>{c.label}</th>)}</tr></thead>
-              <tbody>
-                <tr><td>Expected return</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.expectedReturnPct)}%</td>)}</tr>
-                <tr><td>Std deviation</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.stdDevPct)}%</td>)}</tr>
-                <tr><td>Sharpe (ex-ante)</td>{result.performanceSummary.map((c) => <td key={c.label}>{c.sharpeExAnte}</td>)}</tr>
-              </tbody>
-            </table>
-          </div>
-        </ReportSection>
-
-        <ReportSection title="9. Status">
-          <p>Phase 4 mock &mdash; these numbers are deterministically generated from your inputs for UI review, not a real optimization. Phase 5 wires this to a real riskfolio-lib-backed backend.</p>
-        </ReportSection>
+        ))}
       </section>
     </div>
   );
 }
 
-function ReportSection({ title, children }: { title: string; children: ReactNode }) {
+interface ReportSectionSpec {
+  label: string;
+  content: ReactNode;
+}
+
+function buildReportSections({ result, compareLabel, nameOf, request }: {
+  result: OptimizeResult; compareLabel: string | null; nameOf: (id: string) => string; request?: OptimizeRequest;
+}): ReportSectionSpec[] {
+  const sections: ReportSectionSpec[] = [];
+
+  sections.push({
+    label: "Objective",
+    content: (
+      <p>Risk measure: <b>{result.selectedRiskMeasure.label}</b> (achieved value: {pct.format(result.selectedRiskMeasure.optimizedValue)}%). {compareLabel ? `Compared against ${compareLabel}.` : "No comparison allocation was selected."}</p>
+    )
+  });
+
+  sections.push({
+    label: "Data and methodology",
+    content: (
+      <>
+        {request ? (
+          <p>
+            Time period: <b>{request.timePeriod.startDate}</b> to <b>{request.timePeriod.endDate}</b> ({request.dataFrequency} data).
+            Return method: <b>{request.returnMethod.replace(/_/g, " ")}</b>. Covariance method: <b>{request.covarianceMethod}</b>.
+            Risk-free rate: <b>{request.constraints.riskFreeRatePct}%/yr</b>.
+            {request.constraints.longOnly ? " Long-only." : " Short positions permitted."}
+            {" "}Default weight bounds: <b>{request.constraints.minWeightPct}%</b> to <b>{request.constraints.maxWeightPct}%</b> per fund.
+            {request.constraints.groupConstraintsEnabled ? " Group constraints enabled." : ""}
+            {request.constraints.maxTurnoverPct !== null ? ` Max turnover: ${request.constraints.maxTurnoverPct}% per rebalance.` : ""}
+            {request.constraints.maxTrackingErrorPct !== null ? ` Max tracking error: ${request.constraints.maxTrackingErrorPct}%.` : ""}
+            {" "}Re-validated every <b>{request.constraints.optimizationFrequency}</b> on a <b>{request.constraints.lookbackPeriodMonths}-month</b> lookback.
+          </p>
+        ) : (
+          <p>This run used the objective, risk measure, return/covariance estimation method, and constraints set in the Assumptions step.</p>
+        )}
+        <p className="footnote">See <code>docs/optimization-assumptions.md</code> and <code>docs/mock-ui-spec.md</code> for the sourced methodology behind every field.</p>
+      </>
+    )
+  });
+
+  sections.push({
+    label: "Optimal allocation",
+    content: (
+      <div className="tableScroller">
+        <table>
+          <thead><tr><th>Fund</th><th>Weight</th></tr></thead>
+          <tbody>
+            {Object.entries(result.optimalWeights).sort((a, b) => b[1] - a[1]).map(([id, w]) => (
+              <tr key={id}><td>{nameOf(id)}</td><td>{pct.format(w)}%</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  });
+
+  if (result.tradeList.length) {
+    sections.push({
+      label: "Trade list to get there",
+      content: (
+        <>
+          <p>From your current portfolio, reaching the optimal allocation needs <b>{pct.format(result.totalTurnoverPct)}%</b> one-way turnover.</p>
+          <div className="tableScroller">
+            <table>
+              <thead><tr><th>Fund</th><th>Current</th><th>Optimal</th><th>Change</th><th>Action</th></tr></thead>
+              <tbody>
+                {result.tradeList.map((row) => (
+                  <tr key={row.projId}>
+                    <td>{row.displayName}</td>
+                    <td>{pct.format(row.currentWeightPct)}%</td>
+                    <td>{pct.format(row.optimalWeightPct)}%</td>
+                    <td>{row.deltaPct >= 0 ? "+" : ""}{pct.format(row.deltaPct)}%</td>
+                    <td>{row.action}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )
+    });
+  }
+
+  if (result.bindingConstraints.length) {
+    sections.push({
+      label: "What's actually constraining this result",
+      content: (
+        <div className="tableScroller">
+          <table>
+            <tbody>
+              {result.bindingConstraints.map((b) => (
+                <tr key={b.label}><td>{b.label}</td><td>{b.detail}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    });
+  }
+
+  if (result.benchmarkComparison) {
+    const bc = result.benchmarkComparison;
+    sections.push({
+      label: "Benchmark comparison",
+      content: (
+        <p>
+          Against <b>{bc.displayName}</b>: {bc.excessReturnPct >= 0 ? "excess return of" : "shortfall of"} <b>{pct.format(Math.abs(bc.excessReturnPct))}%</b>,
+          tracking error <b>{pct.format(bc.trackingErrorPct)}%</b>.
+        </p>
+      )
+    });
+  }
+
+  if (result.blackLitterman && request?.blackLitterman) {
+    const bl = request.blackLitterman;
+    sections.push({
+      label: "Black-Litterman inputs",
+      content: (
+        <>
+          <p>Risk aversion (&delta;): <b>{bl.riskAversion}</b>. Tau (&tau;): <b>{bl.tau}</b>. Benchmark expected return: <b>{bl.benchmarkExpectedReturnPct}%</b>.</p>
+          <div className="tableScroller">
+            <table>
+              <thead><tr><th>View</th><th>Value</th><th>Confidence</th></tr></thead>
+              <tbody>
+                {bl.views.map((view) => (
+                  <tr key={view.key}>
+                    <td>
+                      {nameOf(view.assetProjId1)} {view.viewType === "absolute" ? "will return" : `will outperform ${view.assetProjId2 ? nameOf(view.assetProjId2) : "-"} by`}
+                    </td>
+                    <td>{view.adjustedPerformancePct}%</td>
+                    <td>{view.confidence}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )
+    });
+  }
+
+  sections.push({
+    label: "Performance results",
+    content: (
+      <div className="tableScroller">
+        <table>
+          <thead><tr><th>Metric</th>{result.performanceSummary.map((c) => <th key={c.label}>{c.label}</th>)}</tr></thead>
+          <tbody>
+            <tr><td>Expected return</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.expectedReturnPct)}%</td>)}</tr>
+            <tr><td>Std deviation</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.stdDevPct)}%</td>)}</tr>
+            <tr><td>Sharpe (ex-ante)</td>{result.performanceSummary.map((c) => <td key={c.label}>{c.sharpeExAnte}</td>)}</tr>
+          </tbody>
+        </table>
+      </div>
+    )
+  });
+
+  sections.push({
+    label: "Status",
+    content: <p>Phase 4 mock &mdash; these numbers are deterministically generated from your inputs for UI review, not a real optimization. Phase 5 wires this to a real riskfolio-lib-backed backend.</p>
+  });
+
+  return sections;
+}
+
+function ReportSection({ title, index, children }: { title: string; index: number; children: ReactNode }) {
   return (
     <section>
-      <strong>{title}</strong>
+      <strong>{index}. {title}</strong>
       {children}
     </section>
   );
