@@ -222,7 +222,101 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
         </div>
       </div>
 
-      {/* 2. Input estimation (mu, Sigma) */}
+      {/* 2. Objective -- comes before Input estimation to match how PV's own
+          live optimize-portfolio form orders these (Time Period ->
+          Optimization Goal -> the historical-returns/robust toggles), and
+          because deciding intent ("what do I want") before configuration
+          detail ("how should inputs be estimated") is the more natural
+          order for a first-time user. */}
+      <div className="card">
+        <div className="section-title">Objective</div>
+        <div className="obj-grid">
+          {OBJECTIVES.map((objective) => (
+            <button
+              className={request.goal === objective.id ? "obj-card selected" : "obj-card"}
+              key={objective.id}
+              onClick={() => setGoal(objective.id)}
+              type="button"
+            >
+              <h3>{objective.title}</h3>
+              <p className="q">{objective.blurb}</p>
+            </button>
+          ))}
+        </div>
+
+        <div className="section-title" style={{ marginTop: 20 }}>Risk measure</div>
+        <div className="form-grid">
+          <div className="form-field">
+            <label htmlFor="riskMeasure">Risk measure</label>
+            <select
+              className="field"
+              id="riskMeasure"
+              onChange={(event) => patch({ riskMeasure: event.target.value as RiskMeasure })}
+              value={request.riskMeasure}
+            >
+              {RISK_MEASURES.map((measure) => (
+                <option key={measure.id} value={measure.id}>{measure.label}</option>
+              ))}
+            </select>
+          </div>
+          {isTailRisk ? (
+            <div className="form-field">
+              <label htmlFor="tailConfidence">Confidence level</label>
+              <select
+                className="field"
+                id="tailConfidence"
+                onChange={(event) => patch({ tailConfidence: Number(event.target.value) as TailConfidence })}
+                value={request.tailConfidence}
+              >
+                <option value={95}>95%</option>
+                <option value={97.5}>97.5%</option>
+                <option value={99}>99%</option>
+              </select>
+            </div>
+          ) : null}
+          {isTargetVol ? (
+            <div className="form-field">
+              <label htmlFor="targetVol">Targeted annual volatility (%)</label>
+              <input
+                className="field num"
+                id="targetVol"
+                min={0.1}
+                onChange={(event) => patch({ targetAnnualVolatilityPct: Number(event.target.value) })}
+                step={0.1}
+                type="number"
+                value={request.targetAnnualVolatilityPct ?? 10}
+              />
+            </div>
+          ) : null}
+          {isMinVolatility ? (
+            <div className="form-field">
+              <label htmlFor="targetReturn">Targeted annual return (%)</label>
+              <input
+                className="field num"
+                id="targetReturn"
+                onChange={(event) => patch({ targetAnnualReturnPct: Number(event.target.value) })}
+                step={0.1}
+                type="number"
+                value={request.targetAnnualReturnPct ?? 6}
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {isBlackLitterman && request.blackLitterman ? (
+        <BlackLittermanCard
+          bl={request.blackLitterman}
+          patchBl={patchBl}
+          request={request}
+          selectedFunds={selectedFunds}
+          onAddView={addView}
+          onRemoveView={removeView}
+          onUpdateView={updateView}
+        />
+      ) : null}
+
+      {/* 3. Input estimation (mu, Sigma) */}
       <div className="card">
         <div className="section-title">Input estimation (expected return &amp; risk)</div>
         <div className="form-grid">
@@ -380,95 +474,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           </>
         ) : null}
       </div>
-
-      {/* 3. Objective */}
-      <div className="card">
-        <div className="section-title">Objective</div>
-        <div className="obj-grid">
-          {OBJECTIVES.map((objective) => (
-            <button
-              className={request.goal === objective.id ? "obj-card selected" : "obj-card"}
-              key={objective.id}
-              onClick={() => setGoal(objective.id)}
-              type="button"
-            >
-              <h3>{objective.title}</h3>
-              <p className="q">{objective.blurb}</p>
-            </button>
-          ))}
-        </div>
-
-        <div className="section-title" style={{ marginTop: 20 }}>Risk measure</div>
-        <div className="form-grid">
-          <div className="form-field">
-            <label htmlFor="riskMeasure">Risk measure</label>
-            <select
-              className="field"
-              id="riskMeasure"
-              onChange={(event) => patch({ riskMeasure: event.target.value as RiskMeasure })}
-              value={request.riskMeasure}
-            >
-              {RISK_MEASURES.map((measure) => (
-                <option key={measure.id} value={measure.id}>{measure.label}</option>
-              ))}
-            </select>
-          </div>
-          {isTailRisk ? (
-            <div className="form-field">
-              <label htmlFor="tailConfidence">Confidence level</label>
-              <select
-                className="field"
-                id="tailConfidence"
-                onChange={(event) => patch({ tailConfidence: Number(event.target.value) as TailConfidence })}
-                value={request.tailConfidence}
-              >
-                <option value={95}>95%</option>
-                <option value={97.5}>97.5%</option>
-                <option value={99}>99%</option>
-              </select>
-            </div>
-          ) : null}
-          {isTargetVol ? (
-            <div className="form-field">
-              <label htmlFor="targetVol">Targeted annual volatility (%)</label>
-              <input
-                className="field num"
-                id="targetVol"
-                min={0.1}
-                onChange={(event) => patch({ targetAnnualVolatilityPct: Number(event.target.value) })}
-                step={0.1}
-                type="number"
-                value={request.targetAnnualVolatilityPct ?? 10}
-              />
-            </div>
-          ) : null}
-          {isMinVolatility ? (
-            <div className="form-field">
-              <label htmlFor="targetReturn">Targeted annual return (%)</label>
-              <input
-                className="field num"
-                id="targetReturn"
-                onChange={(event) => patch({ targetAnnualReturnPct: Number(event.target.value) })}
-                step={0.1}
-                type="number"
-                value={request.targetAnnualReturnPct ?? 6}
-              />
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {isBlackLitterman && request.blackLitterman ? (
-        <BlackLittermanCard
-          bl={request.blackLitterman}
-          patchBl={patchBl}
-          request={request}
-          selectedFunds={selectedFunds}
-          onAddView={addView}
-          onRemoveView={removeView}
-          onUpdateView={updateView}
-        />
-      ) : null}
 
       {/* 4. Constraints */}
       <div className="card">

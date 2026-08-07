@@ -342,7 +342,15 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
             </div>
           </div>
           <div className="weight-total">
-            {weightsOptional ? null : <>Total <span>{formatPct(total)}</span></>}
+            {/* Even when weightsOptional (OptimizeWorkspace), still show the
+                running total -- these weights double as the "current
+                portfolio" the optimizer's Results tab compares against and
+                builds a trade list from, so the user needs to know whether
+                what they've entered actually sums to 100%, not just whether
+                the Continue button is unlocked. PV's own asset table keeps
+                a "Total" row for the same reason even though its own weights
+                are documented as optional. */}
+            Total <span>{formatPct(total)}</span>
             <span className={complete ? "pill ok" : "pill warn"}>{complete ? "ready" : "incomplete"}</span>
           </div>
         </div>
