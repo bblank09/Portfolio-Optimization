@@ -128,7 +128,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
 
       <div className="card">
         <div className="section-title">Time period</div>
-        <p className="field-hint">Confirmed live on PV's optimize-portfolio tool: Start/End Year is a required input alongside the assets themselves -- kept as dates here (not year-only) since the SEC NAV cache is already month-level.</p>
+        <p className="field-hint">The historical window used to estimate returns, volatility, and correlations for every selected fund.</p>
         <div className="form-grid">
           <div className="form-field">
             <label htmlFor="periodStart">Start date</label>
@@ -171,7 +171,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
                 <option key={measure.id} value={measure.id}>{measure.label}</option>
               ))}
             </select>
-            <p className="field-hint">CDaR matches the Drawdown view you already know from the backtester's Results tabs.</p>
+            <p className="field-hint">CDaR ties directly to the Drawdown view in the Results tabs -- the same drawdown concept, used here as the risk measure.</p>
           </div>
           {isTargetVol ? (
             <div className="form-field">
@@ -185,7 +185,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
                 type="number"
                 value={request.targetAnnualVolatilityPct ?? 10}
               />
-              <p className="field-hint">Confirmed live against PortfolioVisualizer: this constrains the risky-asset mix directly, it does not shift the portfolio to cash.</p>
+              <p className="field-hint">Constrains the risky-asset mix directly to hit this volatility ceiling -- it does not shift the portfolio into cash.</p>
             </div>
           ) : null}
           <div className="form-field">
@@ -214,11 +214,6 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
               <option value="shrinkage">Shrinkage (toward constant correlation)</option>
               <option value="ewma">EWMA</option>
             </select>
-            {request.covarianceMethod === "sample" && selectedFunds.length < 8 ? (
-              <p className="field-hint badge warn" style={{ marginTop: 6, display: "inline-flex" }}>
-                Small shortlist -- sample covariance is estimation-error-prone here. Consider Shrinkage.
-              </p>
-            ) : null}
           </div>
           <div className="form-field">
             <label htmlFor="robustOptimization">Robust Optimization</label>
@@ -231,7 +226,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
               <option value="false">No</option>
               <option value="true">Yes</option>
             </select>
-            <p className="field-hint">PortfolioVisualizer's own Monte Carlo resampling toggle -- mitigates estimation error (Michaud), improves diversification.</p>
+            <p className="field-hint">Resamples the optimization inputs to reduce sensitivity to estimation error and improve diversification.</p>
           </div>
           <div className="form-field">
             <label htmlFor="useHistoricalReturns">Use historical returns</label>
@@ -268,14 +263,14 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
               <option value="true">Yes</option>
               <option value="false">No</option>
             </select>
-            <p className="field-hint">PV exposes these as three separate toggles (returns/volatility/correlations), not one -- confirmed live.</p>
+            <p className="field-hint">Set independently -- you can use historical returns while overriding volatility or correlations, or vice versa.</p>
           </div>
         </div>
 
         {!request.useHistoricalReturns ? (
           <>
             <div className="section-title" style={{ marginTop: 20 }}>Expected return per fund</div>
-            <p className="field-hint">Confirmed live: PV reveals an "Expected Return" input column per asset when Use Historical Returns is No.</p>
+            <p className="field-hint">Set your own expected return per fund instead of the historical average.</p>
             <div className="holdings-table">
               <div className="holdings-head" style={{ gridTemplateColumns: "1fr 120px" }}>
                 <span>Fund</span><span>Expected return (%)</span>
@@ -300,7 +295,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
       {isBlackLitterman && request.blackLitterman ? (
         <div className="card">
           <div className="section-title">Black-Litterman inputs</div>
-          <p className="field-hint">Ordered the way PortfolioVisualizer's own 3-step BL wizard does it: benchmark weights first (from your Step 1 shortlist, equal-weighted by default), then equilibrium-return-adjusting views.</p>
+          <p className="field-hint">Benchmark weights first (equal-weighted from your shortlist by default), then the views that adjust the equilibrium returns.</p>
           <div className="form-grid">
             <div className="form-field">
               <label htmlFor="riskAversion">Risk aversion (&delta;)</label>
@@ -309,7 +304,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
             <div className="form-field">
               <label htmlFor="tau">Tau (&tau;)</label>
               <input className="field num" id="tau" max={1} min={0.01} onChange={(event) => patchBl({ tau: Number(event.target.value) })} step={0.01} type="number" value={request.blackLitterman.tau} />
-              <p className="field-hint">Idzorek (2004): practitioner range 0.01-0.05 (Lee), 1 (Satchell &amp; Scowcroft), or 1/observations (Blamont &amp; Firoozye). Default 0.05.</p>
+              <p className="field-hint">Controls how much weight the market-equilibrium prior carries versus your views. Typical range: 0.01-1. Default 0.05.</p>
             </div>
             <div className="form-field">
               <label htmlFor="benchmarkReturn">Benchmark expected return (%)</label>
@@ -366,7 +361,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           <div className="form-field">
             <label htmlFor="minWeight">Default min weight (%)</label>
             <input className="field num" id="minWeight" min={0} onChange={(event) => patchConstraints({ minWeightPct: Number(event.target.value) })} step={0.5} type="number" value={request.constraints.minWeightPct} />
-            <p className="field-hint">Used for any fund without its own Min % set back in the Portfolio step -- per-fund bounds there take priority, matching PortfolioVisualizer's per-asset Min./Max. Weight columns.</p>
+            <p className="field-hint">Used for any fund without its own Min % set in the Portfolio step -- per-fund bounds there take priority.</p>
           </div>
           <div className="form-field">
             <label htmlFor="maxWeight">Default max weight (%)</label>
@@ -378,7 +373,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
               <option value="false">No</option>
               <option value="true">Yes</option>
             </select>
-            <p className="field-hint">Confirmed live: turns on a Group dropdown (None/A-F) back in the Portfolio step's asset table, plus the Asset Groups bounds below -- not a category-based auto-grouping.</p>
+            <p className="field-hint">Adds a Group dropdown (None/A-F) to each fund in the Portfolio step, plus the group-level bounds below.</p>
           </div>
           <div className="form-field">
             <label htmlFor="maxHoldings">Max holdings</label>
@@ -393,7 +388,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
         {request.constraints.groupConstraintsEnabled ? (
           <>
             <div className="section-title" style={{ marginTop: 20 }}>Asset groups</div>
-            <p className="field-hint">Confirmed live: PV's Asset Groups table has 6 fixed slots (A-F), each with its own name and Min./Max. Weight -- assign funds to a group back in the Portfolio step.</p>
+            <p className="field-hint">6 fixed groups (A-F), each with its own name and weight bounds. Assign funds to a group in the Portfolio step.</p>
             <div className="holdings-table">
               <div className="holdings-head" style={{ gridTemplateColumns: "40px 1fr 90px 90px" }}>
                 <span /><span>Group name</span><span>Min %</span><span>Max %</span>
@@ -424,7 +419,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
                 <option value={48}>48 months</option>
                 <option value={60}>60 months</option>
               </select>
-              <p className="field-hint">Confirmed live on PV's rolling-optimization tool: a fixed trailing window, not an expanding train/test fold split.</p>
+              <p className="field-hint">Re-optimizes on a fixed trailing window at the chosen frequency, then scores realized performance on the next period.</p>
             </div>
             <div className="form-field">
               <label htmlFor="frequency">Optimization frequency</label>

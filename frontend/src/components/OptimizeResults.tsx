@@ -219,7 +219,7 @@ function WeightsTab({ result, nameOf, compareLabel }: { result: OptimizeResult; 
               </tbody>
             </table>
           </div>
-          <p className="field-hint">Adjusted returns are equilibrium returns adjusted for the given views -- same phrasing PortfolioVisualizer uses.</p>
+          <p className="field-hint">Adjusted returns are the equilibrium returns updated by your views.</p>
         </section>
       ) : null}
     </div>
@@ -259,7 +259,7 @@ function RollingTab({ result }: { result: OptimizeResult }) {
     <div className="tabStack">
       <section className="tablePanel">
         <h3>Rolling out-of-sample folds</h3>
-        <p className="field-hint">Each fold re-optimizes on the lookback window, then scores realized performance on the next period -- same pattern as PortfolioVisualizer's rolling-optimization tool.</p>
+        <p className="field-hint">Each fold re-optimizes on the lookback window, then scores realized performance on the next period.</p>
         <div className="tableScroller">
           <table>
             <thead><tr><th>Period</th><th>Realized return</th><th>Realized volatility</th><th>Realized Sharpe</th></tr></thead>

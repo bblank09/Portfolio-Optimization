@@ -100,7 +100,7 @@ export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
     feasibility: "ok",
     feasibilityMessage: null,
     robustNote: request.robustOptimization
-      ? "Monte Carlo resampling applied to the optimization inputs to mitigate estimation error and improve diversification (PortfolioVisualizer's own description of this toggle)."
+      ? "Monte Carlo resampling applied to the optimization inputs to mitigate estimation error and improve diversification."
       : null,
     optimalWeights,
     compareWeights,
