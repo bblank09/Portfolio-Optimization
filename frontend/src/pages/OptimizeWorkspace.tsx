@@ -73,10 +73,13 @@ export function OptimizeWorkspace() {
     goToStep(index);
   }
 
-  // PortfolioStep is reused unmodified from the backtester -- it produces
-  // SecFundAllocation[] with a per-fund "weight" that the optimizer ignores
-  // (the optimizer computes weights, the user only picks which funds are
-  // in scope). See docs/mock-ui-spec.md Step 1.
+  // PortfolioStep is reused from the backtester with weightsOptional=true --
+  // confirmed live against PortfolioVisualizer's own optimize-portfolio tool
+  // ("Portfolio asset weights and constraints are optional"). It still
+  // produces SecFundAllocation[] with a per-fund "weight", but this mock
+  // doesn't yet feed that weight anywhere (Phase 5: it would become the
+  // reference/starting allocation, matching PV's own optional-allocation
+  // behavior). See docs/mock-ui-spec.md Step 1.
   function handleAssetsChange(assets: SecFundAllocation[]) {
     setResult(null);
     setError("");
@@ -133,7 +136,7 @@ export function OptimizeWorkspace() {
       </header>
 
       <div className="main">
-        <PortfolioStep active={currentStep === 0} funds={funds} onAssetsChange={handleAssetsChange} onContinue={() => advanceTo(1)} />
+        <PortfolioStep active={currentStep === 0} funds={funds} onAssetsChange={handleAssetsChange} onContinue={() => advanceTo(1)} weightsOptional />
 
         <OptimizeAssumptionsStep
           active={currentStep === 1}

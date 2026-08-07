@@ -67,6 +67,12 @@ interface Props {
   active: boolean;
   onAssetsChange: (assets: SecFundAllocation[]) => void;
   onContinue: () => void;
+  // Default false so BacktestWorkspace is unaffected. OptimizeWorkspace
+  // passes true: confirmed live against PortfolioVisualizer's own
+  // optimize-portfolio tool ("Portfolio asset weights and constraints are
+  // optional") -- weights here are a reference/starting point, not a
+  // requirement, since the optimizer computes the real weights.
+  weightsOptional?: boolean;
 }
 
 const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
@@ -77,7 +83,7 @@ function nextKey() {
   return `row-${rowSeq}`;
 }
 
-export function PortfolioStep({ funds, active, onAssetsChange, onContinue }: Props) {
+export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weightsOptional = false }: Props) {
   const [rows, setRows] = useState<Row[]>([{ key: nextKey(), projId: "", weight: 0, query: "" }]);
   const [amcFilter, setAmcFilter] = useState<Set<string>>(new Set());
   const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
@@ -204,7 +210,8 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue }: Pro
   const committedRows = rows.filter((row) => row.projId);
   const total = rows.reduce((sum, row) => sum + (row.weight || 0), 0);
   const allNamed = rows.every((row) => row.projId || row.query.trim() !== "");
-  const complete = allNamed && Math.abs(total - 100) < 0.05 && committedRows.length > 0;
+  const weightsReady = weightsOptional || Math.abs(total - 100) < 0.05;
+  const complete = allNamed && weightsReady && committedRows.length > 0;
   const selectedIds = new Set(rows.map((row) => row.projId));
 
   function handlePageKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -219,7 +226,11 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue }: Pro
     <div className={active ? "page active" : "page"} onKeyDown={handlePageKeyDown}>
       <div className="page-head">
         <h1>Build your portfolio</h1>
-        <p>Search SEC-registered mutual funds by name or class, set target weights, and confirm they sum to 100% before setting your assumptions.</p>
+        <p>
+          {weightsOptional
+            ? "Search SEC-registered mutual funds by name or class, then pick which ones to include. Weights below are optional -- the optimizer computes the real ones in the next step."
+            : "Search SEC-registered mutual funds by name or class, set target weights, and confirm they sum to 100% before setting your assumptions."}
+        </p>
       </div>
 
       <div className="card">
@@ -231,7 +242,7 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue }: Pro
         <div className="holdings-table">
           <div className="holdings-head">
             <div>SEC Fund</div>
-            <div>Weight %</div>
+            <div>{weightsOptional ? "Weight % (optional)" : "Weight %"}</div>
             <div />
           </div>
           {rows.map((row) => (
@@ -269,16 +280,18 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue }: Pro
             </div>
           </div>
           <div className="weight-total">
-            Total <span>{formatPct(total)}</span>
+            {weightsOptional ? null : <>Total <span>{formatPct(total)}</span></>}
             <span className={complete ? "pill ok" : "pill warn"}>{complete ? "ready" : "incomplete"}</span>
           </div>
         </div>
 
-        {complete ? <AllocationDonut fundsById={fundsById} onWeightsChange={setWeights} rows={committedRows} /> : null}
+        {allNamed && committedRows.length > 0 ? <AllocationDonut fundsById={fundsById} onWeightsChange={setWeights} rows={committedRows} /> : null}
       </div>
 
       <div className="actions">
-        <span className="footnote">Step 1 of 3 &mdash; portfolio weights must sum to 100%.</span>
+        <span className="footnote">
+          {weightsOptional ? "Step 1 of 3 — weights are optional here." : "Step 1 of 3 — portfolio weights must sum to 100%."}
+        </span>
         <button className="btn btn-primary" disabled={!complete} onClick={onContinue} type="button">Continue to Assumptions &rarr;</button>
       </div>
     </div>
