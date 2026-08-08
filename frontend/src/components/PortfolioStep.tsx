@@ -252,7 +252,15 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
 
   const committedRows = rows.filter((row) => row.projId);
   const total = rows.reduce((sum, row) => sum + (row.weight || 0), 0);
-  const allNamed = rows.every((row) => row.projId || row.query.trim() !== "");
+  // Every row needs an actual selected fund (row.projId), not just typed
+  // text -- previously any non-empty query counted as "named", so a row
+  // where the user typed a search but never actually clicked a suggestion
+  // (a typo, or a name with no match) still marked the page "ready" and
+  // let Continue proceed. commit() only emits rows with a real projId, so
+  // that row's weight silently vanished from what Step 2 actually
+  // received: Step 1 could show "Total 100%, ready" with 2 rows filled in
+  // while Step 2 received only 1 fund.
+  const allNamed = rows.every((row) => row.projId !== "");
   const weightsReady = weightsOptional || Math.abs(total - 100) < 0.05;
   const complete = allNamed && weightsReady && committedRows.length > 0;
   const selectedIds = new Set(rows.map((row) => row.projId));
