@@ -157,7 +157,28 @@ export function OptimizeWorkspace() {
     }
     let ignore = false;
     fetchTestableRange(selectedProjIds)
-      .then((range) => { if (!ignore) setTestableRange(range); })
+      .then((range) => {
+        if (ignore) return;
+        setTestableRange(range);
+        // The sibling backtester has this same client-side "don't re-clamp
+        // an already-set date when the bound shrinks" gap, but it's caught
+        // server-side (POST /api/backtests rejects an out-of-range request
+        // with INSUFFICIENT_NAV_HISTORY). This Phase 4 mock has no backend
+        // at all -- runMockOptimize never validates timePeriod against fund
+        // coverage -- so swapping in a fund with a much narrower window
+        // (e.g. one that started trading last week) left the date inputs
+        // holding a stale value below their own new `min`, silently
+        // accepted by "Run optimization" with zero warning. Re-clamp here,
+        // the one place both bounds are known at the same time.
+        if (range.start && range.end) {
+          setRequest((current) => {
+            const clampedStart = current.timePeriod.startDate < range.start! ? range.start! : current.timePeriod.startDate > range.end! ? range.end! : current.timePeriod.startDate;
+            const clampedEnd = current.timePeriod.endDate > range.end! ? range.end! : current.timePeriod.endDate < range.start! ? range.start! : current.timePeriod.endDate;
+            if (clampedStart === current.timePeriod.startDate && clampedEnd === current.timePeriod.endDate) return current;
+            return { ...current, timePeriod: { startDate: clampedStart, endDate: clampedEnd } };
+          });
+        }
+      })
       .catch(() => { if (!ignore) setTestableRange({ start: null, end: null }); });
     return () => {
       ignore = true;
