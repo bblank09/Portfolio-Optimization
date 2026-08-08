@@ -207,7 +207,28 @@ export function OptimizeWorkspace() {
       fundGroups[asset.proj_id] = (asset.group as OptimizeRequest["fundGroups"][string]) ?? "None";
       currentWeightPct[asset.proj_id] = asset.weight ?? 0;
     }
-    setRequest((current) => ({ ...current, funds: chosen, fundBounds, fundGroups, currentWeightPct }));
+    const chosenIds = new Set(chosen.map((f) => f.proj_id));
+    setRequest((current) => {
+      // Benchmark and Black-Litterman views reference a specific fund by
+      // proj_id. If that fund gets removed here in Step 1, the reference
+      // was never cleared -- the Assumptions page's <select> just silently
+      // stopped rendering it as selected (no matching <option> left), while
+      // request.benchmarkProjId / the view's assetProjId1/2 kept the stale
+      // id in state. That's invisible until something reads it directly
+      // (e.g. a future re-add of a same-id fund would silently "restore"
+      // a benchmark the user never re-picked) -- clear it here instead of
+      // leaving a dangling reference.
+      const benchmarkProjId = current.benchmarkProjId && chosenIds.has(current.benchmarkProjId) ? current.benchmarkProjId : null;
+      const blackLitterman = current.blackLitterman
+        ? {
+            ...current.blackLitterman,
+            views: current.blackLitterman.views.filter(
+              (view) => chosenIds.has(view.assetProjId1) && (view.assetProjId2 === null || chosenIds.has(view.assetProjId2))
+            )
+          }
+        : current.blackLitterman;
+      return { ...current, funds: chosen, fundBounds, fundGroups, currentWeightPct, benchmarkProjId, blackLitterman };
+    });
   }
 
   function updateRequest(next: OptimizeRequest) {
