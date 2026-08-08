@@ -185,7 +185,13 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
   }
 
   function selectFund(key: string, fund: SecFund) {
-    commit(rows.map((row) => (row.key === key ? { ...row, projId: fund.proj_id, query: fund.display_name } : row)));
+    // Min%/Max%/Group are bounds *for whichever fund occupies this row*,
+    // not for the row itself -- picking a fund into a row that previously
+    // held a different one (search box overwrite, not remove+re-add) left
+    // the old fund's custom bounds silently attached to the new fund with
+    // no indication anything carried over. A fresh pick always starts
+    // unconstrained; the user re-sets bounds for the fund actually there.
+    commit(rows.map((row) => (row.key === key ? { ...row, projId: fund.proj_id, query: fund.display_name, minWeight: 0, maxWeight: 100, group: "None" } : row)));
   }
 
   function setQuery(key: string, query: string) {
