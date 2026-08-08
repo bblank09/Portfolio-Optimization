@@ -22,6 +22,17 @@ const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
 export function OptimizeResults({ result, funds, compareLabel, request }: Props) {
   const [activeTab, setActiveTab] = useState<ResultTab>("Summary");
   const nameOf = (projId: string) => funds.find((f) => f.proj_id === projId)?.display_name ?? projId;
+  // compareLabel reflects Constraints' "Compared Allocation" *setting*, not
+  // whether a comparison actually got computed -- "Your Current Portfolio"
+  // resolves to null in mockOptimize when the shortlist has no current
+  // (Step 1) weights entered, since there's nothing to compare against.
+  // Every place that surfaces compareLabel below (Summary narrative +
+  // checklist + footnote, Weights header, Report's Objective section) must
+  // agree with whether result.compareWeights is actually present -- using
+  // the raw setting alone previously claimed "Compared against Your
+  // Current Portfolio" even when no comparison data existed anywhere on
+  // the page.
+  const effectiveCompareLabel = result?.compareWeights ? compareLabel : null;
 
   if (!result) {
     return (
@@ -65,12 +76,12 @@ export function OptimizeResults({ result, funds, compareLabel, request }: Props)
         ))}
       </nav>
 
-      {activeTab === "Summary" ? <SummaryTab compareLabel={compareLabel} nameOf={nameOf} request={request} result={result} setActiveTab={setActiveTab} /> : null}
+      {activeTab === "Summary" ? <SummaryTab compareLabel={effectiveCompareLabel} nameOf={nameOf} request={request} result={result} setActiveTab={setActiveTab} /> : null}
       {activeTab === "Frontier" ? <FrontierTab nameOf={nameOf} result={result} /> : null}
-      {activeTab === "Weights" ? <WeightsTab compareLabel={compareLabel} nameOf={nameOf} result={result} /> : null}
+      {activeTab === "Weights" ? <WeightsTab compareLabel={effectiveCompareLabel} nameOf={nameOf} result={result} /> : null}
       {activeTab === "Performance" ? <PerformanceTab result={result} /> : null}
       {activeTab === "Rolling" ? <RollingTab result={result} /> : null}
-      {activeTab === "Report" ? <ReportTab compareLabel={compareLabel} nameOf={nameOf} request={request} result={result} /> : null}
+      {activeTab === "Report" ? <ReportTab compareLabel={effectiveCompareLabel} nameOf={nameOf} request={request} result={result} /> : null}
     </section>
   );
 }
