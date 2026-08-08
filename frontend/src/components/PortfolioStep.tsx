@@ -665,7 +665,11 @@ function AllocationDonut({
   let angle = -90;
   const arcs = rows.map((row, index) => {
     const share = (row.weight || 0) / total;
-    const sweep = share * 360;
+    // A full 360deg sweep (one fund at 100%) makes the arc's start/end
+    // points identical, which the SVG spec renders as nothing at all --
+    // same bug as OptimizeResults' StaticPie. Cap just under 360 so a
+    // single-fund portfolio's donut still actually renders.
+    const sweep = Math.min(share * 360, 359.99);
     const startAngle = angle;
     const x1 = cx + r * Math.cos((startAngle * Math.PI) / 180);
     const y1 = cy + r * Math.sin((startAngle * Math.PI) / 180);

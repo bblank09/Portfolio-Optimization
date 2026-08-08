@@ -458,8 +458,22 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
   // PV's own frontier chart plots each individual asset at its own
   // (volatility, return) coordinate, not just the frontier curve and a
   // couple of named portfolios -- shows at a glance how much the
-  // optimizer actually improved on any single holding.
-  const assetPoints = result.assetSummary.map((row) => ({ id: row.projId, volatilityPct: row.volatilityPct, expectedReturnPct: row.expectedReturnPct }));
+  // optimizer actually improved on any single holding. When the optimal
+  // portfolio collapses to a single fund (e.g. a tight bound forces ~100%
+  // into one holding), that asset's own point coincides with a marker;
+  // drawing both means the larger marker circle silently hides the
+  // smaller asset circle underneath it (same overlap bug as the merged
+  // markers above), so skip the asset point in that case and fold its
+  // name into the marker's own label instead.
+  const rawAssetPoints = result.assetSummary.map((row) => ({ id: row.projId, volatilityPct: row.volatilityPct, expectedReturnPct: row.expectedReturnPct }));
+  const assetPoints = rawAssetPoints.filter((a) => {
+    const coincidesWithMarker = markers.find((m) => Math.abs(m.volatilityPct - a.volatilityPct) < 0.05 && Math.abs(m.expectedReturnPct - a.expectedReturnPct) < 0.05);
+    if (coincidesWithMarker) {
+      coincidesWithMarker.label = `${coincidesWithMarker.label} (${nameOf(a.id)})`;
+      return false;
+    }
+    return true;
+  });
   const vols = [...result.frontier.map((p) => p.volatilityPct), ...markers.map((m) => m.volatilityPct), ...assetPoints.map((a) => a.volatilityPct)];
   const rets = [...result.frontier.map((p) => p.expectedReturnPct), ...markers.map((m) => m.expectedReturnPct), ...assetPoints.map((a) => a.expectedReturnPct)];
   const minVol = Math.min(...vols);
@@ -709,7 +723,13 @@ function StaticPie({ weights, nameOf }: { weights: Record<string, number>; nameO
   const inner = 30;
   let angle = -90;
   const arcs = entries.map(([id, weight], index) => {
-    const sweep = (weight / total) * 360;
+    // A full 360deg sweep (single fund at 100%) makes the arc's start and
+    // end points identical -- per the SVG spec that degenerates to nothing
+    // being drawn at all, so a portfolio that's 100% one fund would render
+    // an empty pie even though the legend correctly says "100%". Capping
+    // just under 360 keeps the arc's two endpoints distinct so the circle
+    // actually renders, with no visible gap at this radius/stroke width.
+    const sweep = Math.min((weight / total) * 360, 359.99);
     const startAngle = angle;
     const x1 = cx + r * Math.cos((startAngle * Math.PI) / 180);
     const y1 = cy + r * Math.sin((startAngle * Math.PI) / 180);
