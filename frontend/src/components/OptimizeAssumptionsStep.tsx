@@ -130,10 +130,25 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
   }
 
   function setGoal(goal: ObjectiveGoal) {
+    const wasBlackLitterman = request.goal === "black_litterman";
     const blackLitterman = goal === "black_litterman"
       ? (request.blackLitterman ?? { riskAversion: 2.5, tau: 0.05, benchmarkExpectedReturnPct: 7, views: [] })
       : null;
-    patch({ goal, blackLitterman });
+    // The Expected-return method select's `value` prop already forces the
+    // "Black-Litterman posterior" option to *display* as selected whenever
+    // goal is black_litterman (it's disabled while that's true) -- but
+    // request.returnMethod itself was never actually written, so a report
+    // generated in this state printed "historical mean" or whatever it was
+    // before, silently disagreeing with what the dropdown showed selected.
+    // Keep the two in sync for real: set it going in, and put a sane
+    // default back going out (black_litterman_posterior has no meaning
+    // once BL isn't the objective anymore).
+    const returnMethod = goal === "black_litterman"
+      ? "black_litterman_posterior" as const
+      : wasBlackLitterman
+        ? "historical_mean" as const
+        : request.returnMethod;
+    patch({ goal, blackLitterman, returnMethod });
   }
 
   function patchBl(next: Partial<OptimizeRequest["blackLitterman"]>) {
