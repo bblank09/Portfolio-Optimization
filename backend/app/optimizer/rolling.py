@@ -13,7 +13,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
+
+from backend.app.domain.optimize_schemas import OptimizeRequest
+from backend.app.engine import metrics
+from backend.app.optimizer import inputs, solvers
 
 _PERIOD_FREQ = {"monthly": "M", "quarterly": "Q", "annually": "Y"}
 
@@ -69,3 +74,70 @@ def build_fold_schedule(index: pd.DatetimeIndex, frequency: str) -> list[FoldSpe
             )
         )
     return folds
+
+
+def run_rolling_evaluation(
+    request: OptimizeRequest, returns: pd.DataFrame
+) -> tuple[list[dict], str | None]:
+    """Walk-forward re-optimization: for each fold in the expanding-window
+    schedule, re-solves the request's goal on the training slice via the
+    exact same dispatch service.py's main solve uses
+    (``solvers.solve_for_goal``), applies the result to the held-out test
+    slice, and scores it via backend/app/engine/metrics.py. A fold whose
+    solve raises is skipped and counted, never fatal to the whole request.
+
+    Raises ``ValueError("INSUFFICIENT_ROLLING_HISTORY")`` -- the bare
+    ErrorCode name, same convention as inputs.py/solvers.py, resolved by
+    api/optimize.py's existing dynamic lookup with no route change -- when
+    fewer than 2 folds have enough training observations to even attempt a
+    solve. This check runs before any solve is attempted; a fold failing
+    *during* its solve is a different, non-fatal path (see above).
+    """
+    frequency = request.constraints.optimization_frequency.value
+    schedule = build_fold_schedule(returns.index, frequency)
+    usable = [f for f in schedule if len(returns.loc[: f.train_end]) >= MIN_TRAIN_OBSERVATIONS]
+    if len(usable) < 2:
+        raise ValueError("INSUFFICIENT_ROLLING_HISTORY")
+
+    proj_ids = [fund.proj_id for fund in request.funds]
+    ppy = inputs.periods_per_year(request)
+    risk_free_fraction = request.constraints.risk_free_rate_pct / 100
+
+    folds: list[dict] = []
+    failed = 0
+    for fold in usable:
+        train_returns = returns.loc[: fold.train_end]
+        test_returns = returns.loc[fold.test_start : fold.test_end]
+        if test_returns.empty:
+            failed += 1
+            continue
+        try:
+            mu, sigma = inputs.build_mu_sigma(request, train_returns)
+            weights = solvers.solve_for_goal(request, mu, sigma, train_returns)
+        except (ValueError, RuntimeError):
+            failed += 1
+            continue
+
+        aligned = np.array([weights.get(proj_id, 0.0) / 100 for proj_id in proj_ids])
+        period_returns = (test_returns[proj_ids] @ aligned).dropna()
+        if period_returns.empty:
+            failed += 1
+            continue
+
+        sharpe = metrics.sharpe_ratio(period_returns, risk_free_fraction, ppy)
+        folds.append(
+            {
+                "periodLabel": fold.period_label,
+                "realizedReturnPct": round(metrics.annualized_return(period_returns, ppy) * 100, 2),
+                "realizedVolatilityPct": round(metrics.annualized_volatility(period_returns, ppy) * 100, 2),
+                "realizedSharpe": round(sharpe, 2) if sharpe is not None else 0.0,
+            }
+        )
+
+    note = None
+    if failed > 0:
+        note = (
+            f"Rolling validation: {len(folds)} of {len(usable)} folds converged; "
+            f"{failed} skipped due to solver non-convergence on thin training windows."
+        )
+    return folds, note
