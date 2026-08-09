@@ -11,6 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from backend.app.api.backtests import router as backtests_router
 from backend.app.api.data_status import router as data_status_router
 from backend.app.api.funds import router as funds_router
+from backend.app.api.optimize import router as optimize_router
 from backend.app.core.config import settings
 from backend.app.core.errors import AppHTTPException, app_http_exception_handler
 from backend.app.core.limiter import limiter
@@ -50,12 +51,14 @@ app.add_middleware(
 app.include_router(funds_router, prefix="/api/v1")
 app.include_router(backtests_router, prefix="/api/v1")
 app.include_router(data_status_router, prefix="/api/v1")
+app.include_router(optimize_router, prefix="/api/v1")
 # Unversioned alias kept during the migration window -- the current frontend
 # (and every existing client) still calls these paths directly. Drop this
 # once all clients are confirmed to be on /api/v1.
 app.include_router(funds_router, prefix="/api")
 app.include_router(backtests_router, prefix="/api")
 app.include_router(data_status_router, prefix="/api")
+app.include_router(optimize_router, prefix="/api")
 
 
 @app.get("/api/health")
