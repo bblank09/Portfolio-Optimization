@@ -248,7 +248,35 @@ export function OptimizeWorkspace() {
             )
           }
         : current.blackLitterman;
-      return { ...current, funds: chosen, fundBounds, fundGroups, currentWeightPct, benchmarkProjId, blackLitterman };
+      // Same staleness as benchmark/BL views: expected-return, volatility,
+      // and correlation overrides are keyed by proj_id (correlation by
+      // "idA|idB"), and none of them were ever pruned when a fund left the
+      // shortlist -- removing a fund then re-adding it (or re-adding a
+      // different fund that happens to reuse a freed slot) silently
+      // restored whatever override value the *previous* occupant had,
+      // with no way for the user to tell it wasn't a fresh default.
+      const pruneByKey = (overrides: Record<string, number>) =>
+        Object.fromEntries(Object.entries(overrides).filter(([id]) => chosenIds.has(id)));
+      const expectedReturnOverrides = pruneByKey(current.expectedReturnOverrides);
+      const volatilityOverrides = pruneByKey(current.volatilityOverrides);
+      const correlationOverrides = Object.fromEntries(
+        Object.entries(current.correlationOverrides).filter(([key]) => {
+          const [id1, id2] = key.split("|");
+          return chosenIds.has(id1) && chosenIds.has(id2);
+        })
+      );
+      return {
+        ...current,
+        funds: chosen,
+        fundBounds,
+        fundGroups,
+        currentWeightPct,
+        benchmarkProjId,
+        blackLitterman,
+        expectedReturnOverrides,
+        volatilityOverrides,
+        correlationOverrides
+      };
     });
   }
 
