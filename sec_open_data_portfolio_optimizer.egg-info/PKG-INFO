@@ -14,6 +14,8 @@ Requires-Dist: httpx>=0.27
 Requires-Dist: pyarrow>=16.0
 Requires-Dist: slowapi>=0.1.9
 Requires-Dist: tenacity>=8.2
+Requires-Dist: riskfolio-lib>=7.0
+Requires-Dist: cvxpy>=1.5
 Provides-Extra: dev
 Requires-Dist: pytest>=8.2; extra == "dev"
 Requires-Dist: pytest-cov>=5.0; extra == "dev"
