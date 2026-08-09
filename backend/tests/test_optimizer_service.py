@@ -61,3 +61,11 @@ def test_run_optimize_end_to_end_against_real_cache(two_real_fund_request):
     assert len(result.frontier) >= 1
     assert len({(p.volatility_pct, p.expected_return_pct) for p in result.frontier}) == len(result.frontier)
     assert result.optimal_point.label == "Your optimal portfolio"
+
+
+def test_run_optimize_populates_real_rolling_folds(two_real_fund_request):
+    result = run_optimize(two_real_fund_request)
+    assert len(result.rolling) >= 1
+    for fold in result.rolling:
+        assert fold.period_label
+        assert fold.realized_volatility_pct >= 0

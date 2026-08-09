@@ -29,6 +29,7 @@ from backend.app.optimizer import (
     frontier,
     inputs,
     report,
+    rolling,
     solvers,
 )
 
@@ -73,6 +74,7 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         mu = posterior
 
     optimal_weights = solvers.solve_for_goal(request, mu, sigma, returns)
+    rolling_folds, rolling_note = rolling.run_rolling_evaluation(request, returns)
 
     frontier_points = frontier.build_frontier(request, mu, sigma, returns)
     optimal_marker, gmv_marker, tangency_marker = frontier.extract_markers(frontier_points, optimal_weights, mu, sigma)
@@ -119,7 +121,7 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
     return OptimizeResult.model_validate({
         "feasibility": "ok",
         "feasibilityMessage": None,
-        "robustNote": None,
+        "robustNote": rolling_note,
         "optimalWeights": optimal_weights,
         "compareWeights": None,
         # Real per-asset decomposition of the selected risk measure via
@@ -130,9 +132,7 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         "assetSummary": report.build_asset_summary(request, mu, sigma),
         "correlations": report.build_correlations(sigma),
         "performanceSummary": performance_summary,
-        # Rolling out-of-sample evaluator is sub-project 2's responsibility;
-        # empty here is the correct scoping, not a gap in this task.
-        "rolling": [],
+        "rolling": rolling_folds,
         "blackLitterman": bl_result,
         "monthlyReturnsPct": (period_returns * 100).round(2).tolist(),
         "selectedRiskMeasure": {

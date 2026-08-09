@@ -113,3 +113,9 @@ def test_every_goal_and_risk_measure_combination_is_reachable(goal, risk_measure
     # Risk contribution is a real decomposition summing to 100, not 100/n.
     assert sum(result.risk_contribution_pct.values()) == pytest.approx(100, abs=0.5)
     assert result.frontier
+    # Rolling evaluation must either produce real folds or explain why not
+    # (INSUFFICIENT_ROLLING_HISTORY is a separate, expected error path
+    # exercised by test_rolling_evaluation.py directly, not here) -- this
+    # fixture's window is long enough that every goal/risk-measure
+    # combination should produce at least one fold.
+    assert len(result.rolling) >= 1 or result.robust_note is not None
