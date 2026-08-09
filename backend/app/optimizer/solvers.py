@@ -151,15 +151,30 @@ def solve_risk_parity(
 def solve_hrp(request: OptimizeRequest, returns: pd.DataFrame) -> dict[str, float]:
     """Hierarchical Risk Parity via riskfolio-lib's ``rp.HCPortfolio`` --
     clusters assets by codependence and allocates recursively down the
-    dendrogram, with no covariance-matrix inversion at all. This is the
-    brief's sample code verbatim: the real ``rp.HCPortfolio`` constructor
-    and ``optimization()`` signatures (checked against riskfolio-lib 7.3.0
-    installed in /private/tmp/sec_open_data_portfolio_backtester_venv) match
-    what the brief already specified -- ``HCPortfolio(returns=...)`` then
-    ``optimization(model="HRP", codependence=..., rm=..., rf=..., linkage=...)``
-    -- so no deviation was needed here."""
+    dendrogram, with no covariance-matrix inversion at all. The real
+    ``rp.HCPortfolio`` constructor and ``optimization()`` signatures
+    (checked against riskfolio-lib 7.3.0 installed in
+    /private/tmp/sec_open_data_portfolio_backtester_venv) match what the
+    brief already specified -- ``HCPortfolio(returns=...)`` then
+    ``optimization(model="HRP", codependence=..., rm=..., rf=..., linkage=...)``.
+
+    Deviation from the brief's sample code: the brief's ``HCPortfolio(...)``
+    call took only ``returns=``, which silently drops
+    ``request.fund_bounds``/min-max weight constraints for HRP requests --
+    an inconsistency with ``solve_risk_parity``, which enforces bounds via
+    ``_build_portfolio``'s ``ainequality``/``binequality``. Fixed by passing
+    the same per-asset bounds (via the existing ``_asset_bounds`` helper) as
+    ``w_min``/``w_max`` pd.Series -- confirmed real constructor kwargs on
+    ``rp.HCPortfolio`` (riskfolio-lib 7.3.0 source, HCPortfolio.py
+    lines 64-107 and 1060-1078), accepting a ``pd.Series`` or scalar,
+    clipped to [0, 1]."""
     proj_ids = [fund.proj_id for fund in request.funds]
-    hc_port = rp.HCPortfolio(returns=returns[proj_ids])
+    lower, upper = _asset_bounds(request, proj_ids)
+    hc_port = rp.HCPortfolio(
+        returns=returns[proj_ids],
+        w_min=pd.Series(lower, index=proj_ids),
+        w_max=pd.Series(upper, index=proj_ids),
+    )
     rm = RM_CODES[request.risk_measure.value]
     w = hc_port.optimization(
         model="HRP",
