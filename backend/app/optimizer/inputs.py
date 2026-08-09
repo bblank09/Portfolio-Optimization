@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from backend.app.data.quality import align_nav_panel
@@ -76,5 +77,10 @@ def build_mu_sigma(request: OptimizeRequest, returns: pd.DataFrame) -> tuple[pd.
                 vol_2 = sigma.loc[id_2, id_2] ** 0.5
                 sigma.loc[id_1, id_2] = override * vol_1 * vol_2
                 sigma.loc[id_2, id_1] = override * vol_1 * vol_2
+
+    if not request.use_historical_correlations and request.correlation_overrides:
+        eigenvalues = np.linalg.eigvalsh(sigma.values)
+        if (eigenvalues < -1e-8).any():
+            raise ValueError("INDEFINITE_CORRELATION_MATRIX")
 
     return mu, sigma

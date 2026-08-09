@@ -71,3 +71,19 @@ def test_expected_return_override_replaces_historical_mean():
     returns = _fake_returns_panel()
     mu, _ = build_mu_sigma(request, returns)
     assert mu["A"] == pytest.approx(15.0)
+
+
+def test_indefinite_correlation_overrides_raise():
+    request = _request(
+        useHistoricalCorrelations=False,
+        correlationOverrides={"A|B": 0.99},  # fine alone, but combine with...
+    )
+    # A 3-asset impossible triangle: A-B=0.9, A-C=0.9, B-C=-0.9 is the
+    # textbook non-PSD example. Reuse the 2-asset request's structure but
+    # add a third fund so the impossible triangle is expressible.
+    request.funds.append(type(request.funds[0])(projId="C", displayName="Fund C"))
+    request.correlation_overrides = {"A|B": 0.9, "A|C": 0.9, "B|C": -0.9}
+    returns = _fake_returns_panel()
+    returns["C"] = returns["A"] * 0.5 + 0.001
+    with pytest.raises(ValueError, match="INDEFINITE_CORRELATION_MATRIX"):
+        build_mu_sigma(request, returns)
