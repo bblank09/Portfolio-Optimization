@@ -22,7 +22,9 @@ def create_optimization(request: Request, optimize_request: OptimizeRequest) -> 
     try:
         result = run_optimize(optimize_request)
     except ValueError as exc:
-        raise AppHTTPException(status_code=422, detail=str(exc), code=ErrorCode.INSUFFICIENT_NAV_HISTORY) from exc
+        code_name = str(exc)
+        code = getattr(ErrorCode, code_name, ErrorCode.INSUFFICIENT_NAV_HISTORY)
+        raise AppHTTPException(status_code=422, detail=code_name.replace("_", " ").title(), code=code) from exc
     except RuntimeError as exc:
         code_name = str(exc)
         code = getattr(ErrorCode, code_name, ErrorCode.INTERNAL_ERROR)
