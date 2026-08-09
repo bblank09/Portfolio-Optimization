@@ -68,3 +68,15 @@ def test_fewer_than_two_funds_rejected():
     bad = {**MINIMAL_REQUEST_JSON, "funds": [MINIMAL_REQUEST_JSON["funds"][0]]}
     with pytest.raises(ValidationError):
         OptimizeRequest.model_validate(bad)
+
+
+def test_duplicate_proj_id_rejected():
+    bad = {**MINIMAL_REQUEST_JSON, "funds": [MINIMAL_REQUEST_JSON["funds"][0], MINIMAL_REQUEST_JSON["funds"][0]]}
+    with pytest.raises(ValidationError):
+        OptimizeRequest.model_validate(bad)
+
+
+def test_black_litterman_goal_requires_black_litterman_inputs():
+    bad = {**MINIMAL_REQUEST_JSON, "goal": "black_litterman", "blackLitterman": None}
+    with pytest.raises(ValidationError):
+        OptimizeRequest.model_validate(bad)
