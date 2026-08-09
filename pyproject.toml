@@ -23,6 +23,8 @@ dependencies = [
   "pyarrow>=16.0",
   "slowapi>=0.1.9",
   "tenacity>=8.2",
+  "riskfolio-lib>=7.0",
+  "cvxpy>=1.5",
 ]
 
 [project.optional-dependencies]
