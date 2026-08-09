@@ -69,3 +69,24 @@ def test_run_optimize_populates_real_rolling_folds(two_real_fund_request):
     for fold in result.rolling:
         assert fold.period_label
         assert fold.realized_volatility_pct >= 0
+
+
+def test_too_short_a_window_still_returns_the_main_solve_without_rolling(two_real_fund_request):
+    """A rolling-evaluation failure must never block the primary result.
+
+    This window is too short for two folds, so run_rolling_evaluation raises
+    INSUFFICIENT_ROLLING_HISTORY. Before the fix that propagated out of
+    service.run_optimize and turned the whole /api/optimize request into a
+    422 -- losing weights the main solve had already produced fine.
+    """
+    two_real_fund_request.time_period.start_date = "2019-10-31"
+    two_real_fund_request.time_period.end_date = "2019-12-31"
+
+    result = run_optimize(two_real_fund_request)
+
+    assert result.feasibility == "ok"
+    assert set(result.optimal_weights) == {"M0209_2548", "M0155_2547"}
+    assert sum(result.optimal_weights.values()) == pytest.approx(100, abs=0.5)
+    assert result.rolling == []
+    assert result.robust_note is not None
+    assert "Rolling validation unavailable" in result.robust_note

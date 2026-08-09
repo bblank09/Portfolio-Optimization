@@ -47,6 +47,29 @@ def periods_per_year(request: OptimizeRequest) -> int:
     return _PERIODS_PER_YEAR[request.data_frequency.value]
 
 
+def portfolio_return_series(
+    returns: pd.DataFrame,
+    weights: dict[str, float],
+    columns: list[str] | None = None,
+) -> pd.Series:
+    """A weight set's realized periodic return series (fractions) over
+    ``returns``: the weighted sum of the funds' own realized returns.
+
+    Single implementation shared by service.py's main-solve realized
+    performance and rolling.py's per-fold out-of-sample scoring. Those two
+    used to carry byte-identical copies of the ``weights.get(id, 0)/100``
+    -> matrix-multiply -> ``dropna()`` chain, which is exactly the drift
+    risk solvers.solve_for_goal was extracted to prevent.
+
+    ``columns`` selects and orders the columns to score (rolling passes the
+    request's proj_ids); omitted, ``returns.columns`` is used as-is. A
+    weight absent from ``weights`` counts as 0%.
+    """
+    selected = returns if columns is None else returns[columns]
+    aligned = np.array([weights.get(str(column), 0.0) / 100 for column in selected.columns])
+    return (selected @ aligned).dropna()
+
+
 def build_mu_sigma(request: OptimizeRequest, returns: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
     """mu: annualized expected return per fund, as a percentage (matching
     the mock's own convention and frontend/src/types/optimize.ts's

@@ -51,7 +51,25 @@ def _synthetic_returns() -> pd.DataFrame:
     )
 
 
-def _request(goal: str, risk_measure: str) -> OptimizeRequest:
+def _assert_rolling_is_not_degenerate(result: OptimizeResult) -> None:
+    """Rolling must either produce real folds or explain why not.
+
+    The `>= 1 fold or a note` form this replaces was satisfied by 41 folds of
+    identical fabricated `0.00 / 0.00` stats, which is how the monthly-cadence
+    defect reached the merge checkpoint. Asserting the fold stats are not all
+    the same tuple catches that whole "silently constant across every fold"
+    class, not just the one bug.
+    """
+    assert len(result.rolling) >= 1 or result.robust_note is not None
+    if len(result.rolling) >= 2:
+        stats = {
+            (f.realized_return_pct, f.realized_volatility_pct, f.realized_sharpe)
+            for f in result.rolling
+        }
+        assert len(stats) > 1, f"every rolling fold reported the identical stats {stats}"
+
+
+def _request(goal: str, risk_measure: str, optimization_frequency: str = "quarterly") -> OptimizeRequest:
     payload = {
         "funds": [{"projId": p, "displayName": f"Fund {p}"} for p in PROJ_IDS],
         "fundBounds": {}, "currentWeightPct": {}, "fundGroups": {},
@@ -71,7 +89,7 @@ def _request(goal: str, risk_measure: str) -> OptimizeRequest:
         "constraints": {
             "longOnly": True, "minWeightPct": 0, "maxWeightPct": 100,
             "groupConstraintsEnabled": False, "maxHoldings": 20,
-            "lookbackPeriodMonths": 12, "optimizationFrequency": "quarterly",
+            "lookbackPeriodMonths": 12, "optimizationFrequency": optimization_frequency,
             "riskFreeRatePct": 1.5, "compareAgainst": "none",
             "maxTurnoverPct": None, "maxTrackingErrorPct": None,
         },
@@ -113,9 +131,30 @@ def test_every_goal_and_risk_measure_combination_is_reachable(goal, risk_measure
     # Risk contribution is a real decomposition summing to 100, not 100/n.
     assert sum(result.risk_contribution_pct.values()) == pytest.approx(100, abs=0.5)
     assert result.frontier
-    # Rolling evaluation must either produce real folds or explain why not
-    # (INSUFFICIENT_ROLLING_HISTORY is a separate, expected error path
-    # exercised by test_rolling_evaluation.py directly, not here) -- this
-    # fixture's window is long enough that every goal/risk-measure
-    # combination should produce at least one fold.
-    assert len(result.rolling) >= 1 or result.robust_note is not None
+    # Rolling evaluation must either produce real, varying folds or explain
+    # why not (INSUFFICIENT_ROLLING_HISTORY is a separate, expected error
+    # path exercised by test_rolling_evaluation.py directly, not here).
+    _assert_rolling_is_not_degenerate(result)
+
+
+@pytest.mark.parametrize("optimization_frequency", ["monthly", "quarterly", "annually"])
+def test_rolling_is_never_degenerate_at_any_optimization_frequency(
+    optimization_frequency, synthetic_panel
+):
+    """The defect this guards against was cadence-specific: monthly data at a
+    monthly cadence gave every fold a one-observation test window, which
+    scored as a fabricated `0.00 / 0.00` on all 41 folds while the
+    quarterly-only smoke coverage stayed green. Every supported cadence is
+    now exercised, and each must yield either varying fold stats or no folds
+    plus an explanatory note -- never a constant column of numbers.
+    """
+    result = service.run_optimize(_request("min_variance", "std_dev", optimization_frequency))
+
+    _assert_rolling_is_not_degenerate(result)
+    if optimization_frequency == "monthly":
+        # One monthly observation per monthly test window: unscoreable, so
+        # honestly reported as no folds rather than zeros.
+        assert result.rolling == []
+        assert result.robust_note is not None
+    else:
+        assert len(result.rolling) >= 2

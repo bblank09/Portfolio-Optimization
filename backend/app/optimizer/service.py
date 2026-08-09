@@ -34,14 +34,6 @@ from backend.app.optimizer import (
 )
 
 
-def _portfolio_return_series(returns: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
-    """The optimized portfolio's realized periodic return series (fractions),
-    i.e. the weighted sum of the funds' own realized returns. This is the one
-    series every realized-performance metric below is computed from."""
-    aligned = np.array([weights.get(column, 0.0) / 100 for column in returns.columns])
-    return (returns @ aligned).dropna()
-
-
 def _calendar_year_returns(period_returns: pd.Series, periods_per_year: int) -> list[float]:
     """Compounded return for each calendar year that is (nearly) complete.
 
@@ -74,7 +66,20 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         mu = posterior
 
     optimal_weights = solvers.solve_for_goal(request, mu, sigma, returns)
-    rolling_folds, rolling_note = rolling.run_rolling_evaluation(request, returns)
+
+    # A rolling-evaluation failure never blocks the primary weights result
+    # (design spec). run_rolling_evaluation raises
+    # ValueError("INSUFFICIENT_ROLLING_HISTORY") when the window is too
+    # short for two folds; letting that propagate would turn a request that
+    # solved perfectly well into a 422 with no weights at all.
+    try:
+        rolling_folds, rolling_note = rolling.run_rolling_evaluation(request, returns)
+    except ValueError:
+        rolling_folds = []
+        rolling_note = (
+            "Rolling validation unavailable: not enough history for at least 2 folds "
+            "at the selected frequency."
+        )
 
     frontier_points = frontier.build_frontier(request, mu, sigma, returns)
     optimal_marker, gmv_marker, tangency_marker = frontier.extract_markers(frontier_points, optimal_weights, mu, sigma)
@@ -91,7 +96,9 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
     # volatility. Fields that series cannot support are None, not invented.
     periods_per_year = inputs.periods_per_year(request)
     risk_free_fraction = request.constraints.risk_free_rate_pct / 100
-    period_returns = _portfolio_return_series(returns, optimal_weights)
+    # Shared with rolling.py's per-fold scoring -- one implementation of the
+    # weights -> realized series alignment, not two copies free to drift.
+    period_returns = inputs.portfolio_return_series(returns, optimal_weights)
     growth = (1 + period_returns).cumprod()
     yearly = _calendar_year_returns(period_returns, periods_per_year)
     sharpe_ex_post = metrics.sharpe_ratio(period_returns, risk_free_fraction, periods_per_year)
