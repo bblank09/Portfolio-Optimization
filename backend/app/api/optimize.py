@@ -42,6 +42,11 @@ def create_optimization(request: Request, optimize_request: OptimizeRequest) -> 
         code_name = str(exc)
         code = getattr(ErrorCode, code_name, ErrorCode.INTERNAL_ERROR)
         raise AppHTTPException(status_code=422, detail=code_name.replace("_", " ").title(), code=code) from exc
+    except AppHTTPException:
+        # Already a coded response (e.g. raised from deeper in run_optimize in
+        # the future) — let it pass through instead of flattening it into a
+        # generic 500 below.
+        raise
     except Exception as exc:
         # riskfolio-lib's internals raise bare KeyError/NameError/IndexError
         # on unsupported parameter combinations. Translate anything unexpected
