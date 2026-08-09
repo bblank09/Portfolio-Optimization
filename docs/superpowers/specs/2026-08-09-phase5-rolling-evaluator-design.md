@@ -75,9 +75,11 @@ pure functions per concern" shape of the rest of `optimizer/`:
    because the first window is training-only, with no preceding period to have been
    "out of sample" against). The last fold's test window runs to the testable range's
    end even if that's a partial period.
-3. **Minimum training window**: the first fold's training window must satisfy the same
-   minimum-observation floor `inputs.py` already enforces for a normal single-shot solve
-   (covariance estimation needs enough rows) — reused, not reimplemented. If the testable
+3. **Minimum training window**: `inputs.py` only rejects an empty/all-NaN window today,
+   not one that's merely too short for a stable covariance estimate — no such floor
+   exists yet to reuse. This sub-project introduces a new, fixed floor
+   (covariance estimation needs enough rows relative to fund count) and drops any fold
+   whose training window falls short of it before attempting a solve. If the testable
    range can't produce at least 2 folds meeting that floor at the selected frequency,
    raise `ValueError("INSUFFICIENT_ROLLING_HISTORY")` (new `ErrorCode`, same raise-bare-
    name convention `inputs.py`/`solvers.py` already use), which `optimize.py`'s existing
