@@ -2,8 +2,6 @@ from backend.app.domain.optimize_schemas import OptimizeRequest
 
 
 def _raw_turnover(request: OptimizeRequest, optimal_weights: dict[str, float]) -> float:
-    if not any(w > 0 for w in request.current_weight_pct.values()):
-        return 0.0
     total = 0.0
     for proj_id, optimal in optimal_weights.items():
         current = request.current_weight_pct.get(proj_id, 0.0)
@@ -24,7 +22,7 @@ def binding_constraints(request: OptimizeRequest, optimal_weights: dict[str, flo
         name = fund_names.get(proj_id, proj_id)
         if max_pct < 100 and abs(weight - max_pct) < 0.05:
             findings.append({"label": f"{name}: max weight", "detail": f"Capped at {max_pct}% -- would hold more if allowed."})
-        if min_pct > 0 and abs(weight - min_pct) < 0.05:
+        if min_pct != 0 and abs(weight - min_pct) < 0.05:
             findings.append({"label": f"{name}: min weight", "detail": f"Floored at {min_pct}% -- would hold less if allowed."})
 
     if request.constraints.max_turnover_pct is not None:
@@ -38,8 +36,6 @@ def binding_constraints(request: OptimizeRequest, optimal_weights: dict[str, flo
 
 
 def build_trade_list(request: OptimizeRequest, optimal_weights: dict[str, float]) -> tuple[list[dict], float]:
-    if not any(w > 0 for w in request.current_weight_pct.values()):
-        return [], 0.0
     fund_names = {fund.proj_id: fund.display_name for fund in request.funds}
     rows = []
     for proj_id, optimal in optimal_weights.items():
