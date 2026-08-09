@@ -80,3 +80,28 @@ def test_insufficient_nav_history_returns_correct_error_code():
     body = response.json()
     assert body["code"] == ErrorCode.INSUFFICIENT_NAV_HISTORY
     assert "Insufficient Nav History" in body["detail"]
+
+
+def test_missing_nav_cache_returns_nav_cache_missing():
+    """Mirrors the sibling /api/backtests route: a missing parquet cache is a
+    503 NAV_CACHE_MISSING, not an unhandled 500."""
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch("backend.app.api.optimize.run_optimize", side_effect=FileNotFoundError("data/sec/normalized")):
+        response = client.post("/api/optimize", json=_valid_optimize_payload())
+
+    assert response.status_code == 503
+    assert response.json()["code"] == ErrorCode.NAV_CACHE_MISSING
+
+
+def test_unexpected_exception_is_translated_to_coded_server_error():
+    """riskfolio-lib's internals raise bare KeyError/NameError on unsupported
+    parameter combinations (the final review hit both). Those must surface as
+    a coded 500, not as a raw unhandled exception."""
+    client = TestClient(app, raise_server_exceptions=False)
+
+    for error in (KeyError("black_litterman"), NameError("The limits of the frontier can't be found")):
+        with patch("backend.app.api.optimize.run_optimize", side_effect=error):
+            response = client.post("/api/optimize", json=_valid_optimize_payload())
+        assert response.status_code == 500
+        assert response.json()["code"] == ErrorCode.INTERNAL_ERROR

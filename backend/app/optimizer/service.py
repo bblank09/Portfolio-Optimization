@@ -18,8 +18,45 @@ formulas drifting apart. `frontier._portfolio_stats` is a private helper, so
 it is called via its qualified module path rather than re-exported.
 """
 
+import numpy as np
+import pandas as pd
+
 from backend.app.domain.optimize_schemas import OptimizeRequest, OptimizeResult
-from backend.app.optimizer import black_litterman, diagnostics, frontier, inputs, report, solvers
+from backend.app.engine import metrics
+from backend.app.optimizer import (
+    black_litterman,
+    diagnostics,
+    frontier,
+    inputs,
+    report,
+    solvers,
+)
+
+
+def _portfolio_return_series(returns: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
+    """The optimized portfolio's realized periodic return series (fractions),
+    i.e. the weighted sum of the funds' own realized returns. This is the one
+    series every realized-performance metric below is computed from."""
+    aligned = np.array([weights.get(column, 0.0) / 100 for column in returns.columns])
+    return (returns @ aligned).dropna()
+
+
+def _calendar_year_returns(period_returns: pd.Series, periods_per_year: int) -> list[float]:
+    """Compounded return for each calendar year that is (nearly) complete.
+
+    A partial year is not a "best/worst year" -- comparing a 2-month stub
+    against full years would misreport both ends -- so years covered by fewer
+    than 75% of the expected observations are dropped rather than reported.
+    """
+    if not isinstance(period_returns.index, pd.DatetimeIndex):
+        return []
+    minimum_periods = max(1, int(periods_per_year * 0.75))
+    yearly: list[float] = []
+    for _, group in period_returns.groupby(period_returns.index.year):
+        if len(group) >= minimum_periods:
+            compounded = float(np.prod(1.0 + group.to_numpy(dtype=float)))
+            yearly.append((compounded - 1.0) * 100)
+    return yearly
 
 
 def run_optimize(request: OptimizeRequest) -> OptimizeResult:
@@ -51,18 +88,38 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
     portfolio_return, portfolio_vol = frontier._portfolio_stats(optimal_weights, mu, sigma)
     sharpe = (portfolio_return - request.constraints.risk_free_rate_pct) / portfolio_vol if portfolio_vol > 0 else 0.0
 
+    # Realized (ex-post) performance is computed from the portfolio's own
+    # periodic return series using backend/app/engine/metrics.py -- the same
+    # implementations the backtest engine uses -- rather than derived from
+    # volatility. Fields that series cannot support are None, not invented.
+    periods_per_year = inputs.periods_per_year(request)
+    risk_free_fraction = request.constraints.risk_free_rate_pct / 100
+    period_returns = _portfolio_return_series(returns, optimal_weights)
+    growth = (1 + period_returns).cumprod()
+    yearly = _calendar_year_returns(period_returns, periods_per_year)
+    sharpe_ex_post = metrics.sharpe_ratio(period_returns, risk_free_fraction, periods_per_year)
+    sortino = metrics.sortino_ratio(period_returns, risk_free_fraction, periods_per_year)
+
     performance_summary = [{
         "label": "Optimized",
-        "cagrPct": round(portfolio_return, 2),
+        "cagrPct": round(metrics.annualized_return(period_returns, periods_per_year) * 100, 2),
+        # Ex-ante: the mu/Sigma the optimizer actually solved against.
         "expectedReturnPct": round(portfolio_return, 2),
         "stdDevPct": round(portfolio_vol, 2),
-        "bestYearPct": round(portfolio_return + portfolio_vol, 2),
-        "worstYearPct": round(portfolio_return - portfolio_vol, 2),
-        "maxDrawdownPct": round(-portfolio_vol, 2),
+        "bestYearPct": round(max(yearly), 2) if yearly else None,
+        "worstYearPct": round(min(yearly), 2) if yearly else None,
+        "maxDrawdownPct": round(metrics.max_drawdown(growth) * 100, 2) if not growth.empty else None,
         "sharpeExAnte": round(sharpe, 2),
-        "sharpeExPost": round(sharpe, 2),
-        "sortino": round(sharpe, 2),
+        "sharpeExPost": round(sharpe_ex_post, 2) if sharpe_ex_post is not None else None,
+        "sortino": round(sortino, 2) if sortino is not None else None,
     }]
+
+    realized_risk_value, risk_is_annualized = solvers.realized_risk(
+        request, optimal_weights, sigma, returns, periods_per_year
+    )
+    risk_label = solvers.RM_LABELS[request.risk_measure.value]
+    if not risk_is_annualized:
+        risk_label = f"{risk_label} ({request.data_frequency.value})"
 
     return OptimizeResult.model_validate({
         "feasibility": "ok",
@@ -70,11 +127,10 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         "robustNote": None,
         "optimalWeights": optimal_weights,
         "compareWeights": None,
-        # Equal-share stand-in -- real per-asset risk-contribution decomposition
-        # is sub-project 2's responsibility per the spec's "Out of scope"
-        # section (see task-10-brief.md's implementer note). Not unfinished
-        # work for this task.
-        "riskContributionPct": {p: round(100 / len(optimal_weights), 2) for p in optimal_weights},
+        # Real per-asset decomposition of the selected risk measure via
+        # riskfolio-lib's own Risk_Contribution (was: a flat 100/n stand-in
+        # that said nothing about the actual portfolio).
+        "riskContributionPct": solvers.risk_contribution_pct(request, optimal_weights, sigma, returns),
         "frontier": frontier_points,
         "assetSummary": report.build_asset_summary(request, mu, sigma),
         "correlations": report.build_correlations(sigma),
@@ -83,11 +139,11 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         # empty here is the correct scoping, not a gap in this task.
         "rolling": [],
         "blackLitterman": bl_result,
-        "monthlyReturnsPct": (returns @ [optimal_weights.get(c, 0) / 100 for c in returns.columns] * 100).round(2).tolist(),
+        "monthlyReturnsPct": (period_returns * 100).round(2).tolist(),
         "selectedRiskMeasure": {
             "measure": request.risk_measure.value,
-            "label": request.risk_measure.value,
-            "optimizedValue": round(portfolio_vol, 2),
+            "label": risk_label,
+            "optimizedValue": round(realized_risk_value, 2),
             "comparedValue": None,
             "unit": "pct",
         },

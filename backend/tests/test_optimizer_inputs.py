@@ -87,3 +87,56 @@ def test_indefinite_correlation_overrides_raise():
     returns["C"] = returns["A"] * 0.5 + 0.001
     with pytest.raises(ValueError, match="INDEFINITE_CORRELATION_MATRIX"):
         build_mu_sigma(request, returns)
+
+
+def _nav_frame(values_a: list[float], values_b: list[float]) -> pd.DataFrame:
+    dates = pd.date_range("2020-01-31", periods=len(values_a), freq="ME")
+    return pd.DataFrame({"A": values_a, "B": values_b}, index=dates)
+
+
+def test_mid_window_nav_gap_is_a_hard_error(monkeypatch):
+    """CLAUDE.md landmine: a gap in the requested range is a hard error --
+    never forward-filled, never interpolated. The old check only rejected a
+    fund that was ENTIRELY NaN in the window, so a partial (mid-window) gap
+    silently survived into the covariance estimate: align_nav_panel does not
+    drop partial-NaN rows and pct_change().dropna(how="all") keeps rows that
+    are only partly NaN."""
+    from backend.app.optimizer import inputs as inputs_module
+
+    panel = _nav_frame([10.0, 10.5, np.nan, 11.2, 11.5, 11.9], [20.0, 20.4, 20.9, 21.1, 21.6, 22.0])
+    monkeypatch.setattr(inputs_module, "load_nav_panel", lambda proj_ids: panel)
+    monkeypatch.setattr(inputs_module, "align_nav_panel", lambda nav, frequency: nav)
+
+    with pytest.raises(ValueError, match="INSUFFICIENT_NAV_HISTORY"):
+        inputs_module.build_returns_panel(_request())
+
+
+def test_complete_window_builds_returns(monkeypatch):
+    """The gap check must not reject a genuinely complete panel."""
+    from backend.app.optimizer import inputs as inputs_module
+
+    panel = _nav_frame([10.0, 10.5, 10.8, 11.2, 11.5, 11.9], [20.0, 20.4, 20.9, 21.1, 21.6, 22.0])
+    monkeypatch.setattr(inputs_module, "load_nav_panel", lambda proj_ids: panel)
+    monkeypatch.setattr(inputs_module, "align_nav_panel", lambda nav, frequency: nav)
+
+    returns = inputs_module.build_returns_panel(_request())
+    assert list(returns.columns) == ["A", "B"]
+    assert len(returns) == 5
+    assert not returns.isna().to_numpy().any()
+
+
+def test_raise_convention_uses_bare_error_code_name(monkeypatch):
+    """The API route resolves the error code via getattr(ErrorCode, str(exc)),
+    so the message must BE the code name -- previously it was a human
+    sentence that only reached the right code by falling through to the
+    default."""
+    from backend.app.domain.enums import ErrorCode
+    from backend.app.optimizer import inputs as inputs_module
+
+    panel = _nav_frame([10.0, np.nan, np.nan, np.nan, np.nan, np.nan], [20.0, 20.4, 20.9, 21.1, 21.6, 22.0])
+    monkeypatch.setattr(inputs_module, "load_nav_panel", lambda proj_ids: panel)
+    monkeypatch.setattr(inputs_module, "align_nav_panel", lambda nav, frequency: nav)
+
+    with pytest.raises(ValueError) as excinfo:
+        inputs_module.build_returns_panel(_request())
+    assert getattr(ErrorCode, str(excinfo.value), None) is ErrorCode.INSUFFICIENT_NAV_HISTORY

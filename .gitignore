@@ -21,6 +21,7 @@ data/runs/
 data/sec/raw/
 
 sec_open_data_portfolio_backtester.egg-info/
+sec_open_data_portfolio_optimizer.egg-info/
 
 Clean portfolio backtesting workspace/
 Clean portfolio backtesting workspace.zip

@@ -52,5 +52,12 @@ def test_run_optimize_end_to_end_against_real_cache(two_real_fund_request):
     result = run_optimize(two_real_fund_request)
     assert result.feasibility == "ok"
     assert sum(result.optimal_weights.values()) == pytest.approx(100, abs=0.5)
-    assert len(result.frontier) == 24
+    # This fixture's two funds are both SET50 index trackers: over this window
+    # one dominates the other on BOTH return and volatility, so the efficient
+    # set is genuinely a single point. riskfolio returns 24 identical columns
+    # anyway; build_frontier now collapses them (see frontier._dedupe_points)
+    # rather than presenting duplicates as a curve. Asserting 24 here was
+    # asserting the duplicates.
+    assert len(result.frontier) >= 1
+    assert len({(p.volatility_pct, p.expected_return_pct) for p in result.frontier}) == len(result.frontier)
     assert result.optimal_point.label == "Your optimal portfolio"

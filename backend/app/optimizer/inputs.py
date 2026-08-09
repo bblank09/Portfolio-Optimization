@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from backend.app.data.quality import align_nav_panel
+from backend.app.data.quality import align_nav_panel, validate_nav_panel
 from backend.app.domain.optimize_schemas import OptimizeRequest
 from backend.app.sec.cache import load_nav_panel
 
@@ -10,16 +10,36 @@ _PERIODS_PER_YEAR = {"daily": 252, "weekly": 52, "monthly": 12}
 
 def build_returns_panel(request: OptimizeRequest) -> pd.DataFrame:
     """Load, align, and slice the NAV panel for the request's funds and
-    time period, then convert to simple period returns. Raises ValueError
-    (caught by the API route and turned into INSUFFICIENT_NAV_HISTORY) if
-    any fund has no NAV observations in the requested window."""
+    time period, then convert to simple period returns.
+
+    Raises ``ValueError("INSUFFICIENT_NAV_HISTORY")`` -- the bare ErrorCode
+    name, the same convention ``solvers.py`` uses, so the API route's
+    ``getattr(ErrorCode, str(exc))`` lookup resolves it exactly rather than
+    landing on a default -- when the aligned window is unusable.
+
+    "Unusable" includes ANY missing observation, not just a fund that is
+    entirely absent. ``align_nav_panel`` does not drop partial-NaN rows and
+    ``pct_change().dropna(how="all")`` keeps rows that are only partly NaN,
+    so a mid-window gap used to survive into the covariance estimate. Per
+    CLAUDE.md's landmine list a gap in the requested range is a hard error --
+    never forward-filled, never interpolated.
+    """
     proj_ids = [fund.proj_id for fund in request.funds]
+    # A missing parquet cache surfaces here as FileNotFoundError; it is left
+    # to propagate so the API route can map it to NAV_CACHE_MISSING (503),
+    # matching backend/app/api/backtests.py's handling of the same case.
     nav = align_nav_panel(load_nav_panel(proj_ids), frequency=request.data_frequency.value)
     window = nav.loc[pd.Timestamp(request.time_period.start_date):pd.Timestamp(request.time_period.end_date), proj_ids]
-    if window.isna().all().any():
-        missing = window.columns[window.isna().all()].tolist()
-        raise ValueError(f"No NAV observations in the requested window for: {missing}")
+    if window.empty or window.isna().to_numpy().any():
+        raise ValueError("INSUFFICIENT_NAV_HISTORY")
+    # Same validator the sibling /api/backtests route runs; error-severity
+    # issues (empty panel, non-positive NAV) are fatal for an optimization.
+    issues = validate_nav_panel(window, as_of=pd.Timestamp(request.time_period.end_date))
+    if any(issue["severity"] == "error" for issue in issues):
+        raise ValueError("INSUFFICIENT_NAV_HISTORY")
     returns = window.pct_change().dropna(how="all")
+    if returns.empty:
+        raise ValueError("INSUFFICIENT_NAV_HISTORY")
     return returns
 
 

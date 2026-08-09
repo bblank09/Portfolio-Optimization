@@ -38,10 +38,21 @@ that is flagged explicitly via its own ``label`` rather than silently
 implied to lie on the line.
 """
 
+import contextlib
+import io
+import logging
+
 import pandas as pd
 
 from backend.app.domain.optimize_schemas import OptimizeRequest
 from backend.app.optimizer.solvers import RM_CODES, _build_portfolio
+
+logger = logging.getLogger("app.optimizer.frontier")
+
+# Two frontier points closer than this in BOTH volatility and expected return
+# are the same point as far as the chart is concerned (values are reported
+# rounded to 2 decimals anyway).
+_POINT_TOLERANCE = 0.005
 
 
 def _portfolio_stats(weights: dict[str, float], mu: pd.Series, sigma: pd.DataFrame) -> tuple[float, float]:
@@ -68,9 +79,23 @@ def build_frontier(
     """Sweep riskfolio-lib's real efficient frontier for the request's
     selected risk measure and return 24 points, each with weights and
     stats derived from those same weights (see module docstring)."""
-    port = _build_portfolio(request, mu, sigma, returns)
+    # apply_goal_targets=False: the sweep needs an UNCONSTRAINED portfolio.
+    # See the comment at that flag in solvers._build_portfolio -- inheriting
+    # the max_return_target_vol goal's `upperdev` ceiling made riskfolio raise
+    # `NameError: The limits of the frontier can't be found` on every such
+    # request. The goal's real constraint still applies to the actual solve;
+    # its optimum is plotted as a marker on this unconstrained curve.
+    port = _build_portfolio(request, mu, sigma, returns, apply_goal_targets=False)
     rm = RM_CODES[request.risk_measure.value]
-    frontier_weights = port.efficient_frontier(model="Classic", rm=rm, rf=port.rf, points=points, hist=True)
+    # riskfolio-lib 7.3.0's efficient_frontier has no `verbose` switch: it
+    # `print()`s solver diagnostics straight to stdout. Capture them so they
+    # land in the application log instead of polluting raw process output.
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        frontier_weights = port.efficient_frontier(model="Classic", rm=rm, rf=port.rf, points=points, hist=True)
+    noise = captured.getvalue().strip()
+    if noise:
+        logger.warning("riskfolio efficient_frontier diagnostics: %s", noise.replace("\n", " | "))
     if frontier_weights is None or frontier_weights.empty:
         raise RuntimeError("SOLVER_NON_CONVERGENCE")
 
@@ -88,7 +113,34 @@ def build_frontier(
                 "weights": {k: round(v, 2) for k, v in weights.items()},
             }
         )
-    return result
+    return _dedupe_points(result, requested=points)
+
+
+def _dedupe_points(result: list[dict], *, requested: int) -> list[dict]:
+    """Collapse numerically-identical frontier points.
+
+    A near-degenerate fund set (e.g. two funds with correlation ~1) makes
+    riskfolio return `points` rows that are all the same portfolio. Returning
+    24 stacked duplicates presents a collapsed frontier as if it were a real
+    curve. Deduping is the smaller change than inventing a new error code:
+    the caller sees a shorter `frontier` list -- one point in the fully
+    degenerate case -- and the reduction is logged.
+    """
+    distinct: list[dict] = []
+    for point in result:
+        if any(
+            abs(point["volatilityPct"] - kept["volatilityPct"]) <= _POINT_TOLERANCE
+            and abs(point["expectedReturnPct"] - kept["expectedReturnPct"]) <= _POINT_TOLERANCE
+            for kept in distinct
+        ):
+            continue
+        distinct.append(point)
+    if len(distinct) < requested:
+        logger.warning(
+            "frontier sweep collapsed: %d of %d requested points were numerically distinct",
+            len(distinct), requested,
+        )
+    return distinct
 
 
 def extract_markers(

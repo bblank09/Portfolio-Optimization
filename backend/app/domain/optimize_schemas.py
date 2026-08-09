@@ -193,16 +193,24 @@ class AssetSummaryRow(CamelModel):
 
 
 class PerformanceSummaryColumn(CamelModel):
+    """Realized-performance fields are ``float | None``: they are computed
+    from the portfolio's actual periodic return series, and some of them are
+    genuinely undefined for a given request (no complete calendar year in the
+    window, a degenerate zero-downside series). Returning null there is the
+    honest answer -- these five used to be fabricated from volatility
+    (bestYear = ret + vol, sortino = sharpe, ...), which the design spec's
+    "no synthetic numbers anywhere in the response" target state forbids."""
+
     label: str
     cagr_pct: float
     expected_return_pct: float
     std_dev_pct: float
-    best_year_pct: float
-    worst_year_pct: float
-    max_drawdown_pct: float
+    best_year_pct: float | None
+    worst_year_pct: float | None
+    max_drawdown_pct: float | None
     sharpe_ex_ante: float
-    sharpe_ex_post: float
-    sortino: float
+    sharpe_ex_post: float | None
+    sortino: float | None
 
 
 class RollingFold(CamelModel):
@@ -213,6 +221,10 @@ class RollingFold(CamelModel):
 
 
 class SelectedRiskMeasureResult(CamelModel):
+    """``optimized_value`` is the realized value of ``measure`` itself for the
+    solved weights (see optimizer/solvers.realized_risk) -- not, as it once
+    was, portfolio standard deviation wearing the selected measure's label."""
+
     measure: RiskMeasure
     label: str
     optimized_value: float
