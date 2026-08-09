@@ -255,8 +255,24 @@ function buildBindingConstraints(
       }
     }
   }
+  // "What's actually constraining this result" means load-bearing, not
+  // merely set -- a max-turnover cap that's well above what this rebalance
+  // actually needs isn't constraining anything, even though it's
+  // configured. Recompute the same raw (uncapped) turnover buildTradeList
+  // uses to decide whether to scale back, so this only fires when that
+  // scale-back actually happened.
   if (request.constraints.maxTurnoverPct !== null) {
-    binding.push({ label: "Max turnover", detail: `Capped at ${request.constraints.maxTurnoverPct}% one-way turnover per rebalance.` });
+    const hasCurrent = Object.values(request.currentWeightPct).some((w) => w > 0);
+    if (hasCurrent) {
+      const rawTurnover = perAsset.reduce((sum, { fund }) => {
+        const current = request.currentWeightPct[fund.proj_id] ?? 0;
+        const optimal = optimalWeights[fund.proj_id] ?? 0;
+        return sum + Math.abs(optimal - current);
+      }, 0) / 2;
+      if (rawTurnover > request.constraints.maxTurnoverPct) {
+        binding.push({ label: "Max turnover", detail: `Capped at ${request.constraints.maxTurnoverPct}% one-way turnover per rebalance -- the full rebalance would have needed ${rawTurnover.toFixed(2)}%.` });
+      }
+    }
   }
   return binding;
 }
