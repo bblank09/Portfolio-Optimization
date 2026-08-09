@@ -41,6 +41,7 @@ import pandas as pd
 import riskfolio as rp
 
 from backend.app.domain.optimize_schemas import OptimizeRequest
+from backend.app.optimizer import black_litterman
 
 # This project's RiskMeasure enum -> riskfolio-lib's own `rm` short codes.
 # All four resolve to LP/QP/SOCP problems per riskfolio-lib's own solver
@@ -300,3 +301,23 @@ def solve_hrp(request: OptimizeRequest, returns: pd.DataFrame) -> dict[str, floa
     if w is None:
         raise RuntimeError("SOLVER_NON_CONVERGENCE")
     return {proj_id: float(w.loc[proj_id, "weights"]) * 100 for proj_id in w.index}
+
+
+def solve_for_goal(
+    request: OptimizeRequest, mu: pd.Series, sigma: pd.DataFrame, returns: pd.DataFrame
+) -> dict[str, float]:
+    """The single per-goal solve dispatch shared by service.py's main solve
+    and rolling.py's per-fold solves, so the two never drift apart. For
+    ``black_litterman`` this blends its own posterior mu internally and
+    solves against it -- a caller that also needs the equilibrium/posterior
+    values themselves (service.py's top-level ``blackLitterman`` result
+    field) calls ``black_litterman.blend_posterior`` separately for that;
+    the redundant second blend computed here is cheap linear algebra on a
+    small matrix, not a correctness or performance concern."""
+    if request.goal.value == "black_litterman":
+        _, mu = black_litterman.blend_posterior(request, mu, sigma)
+    if request.goal.value == "risk_parity":
+        return solve_risk_parity(request, mu, sigma, returns)
+    if request.goal.value == "hrp":
+        return solve_hrp(request, returns)
+    return solve_mean_variance(request, mu, sigma, returns)

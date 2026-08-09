@@ -72,12 +72,7 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         }
         mu = posterior
 
-    if request.goal.value == "risk_parity":
-        optimal_weights = solvers.solve_risk_parity(request, mu, sigma, returns)
-    elif request.goal.value == "hrp":
-        optimal_weights = solvers.solve_hrp(request, returns)
-    else:
-        optimal_weights = solvers.solve_mean_variance(request, mu, sigma, returns)
+    optimal_weights = solvers.solve_for_goal(request, mu, sigma, returns)
 
     frontier_points = frontier.build_frontier(request, mu, sigma, returns)
     optimal_marker, gmv_marker, tangency_marker = frontier.extract_markers(frontier_points, optimal_weights, mu, sigma)
