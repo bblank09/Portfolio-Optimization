@@ -123,6 +123,7 @@ def test_optimize_result_accepts_compare_note():
     payload = _valid_optimize_result_payload()
     payload["compareNote"] = "max_sharpe comparison could not converge"
     payload["constraintNote"] = None
+    payload["robustOptimizationNote"] = None
     result = OptimizeResult.model_validate(payload)
     assert result.compare_note == "max_sharpe comparison could not converge"
 
@@ -135,12 +136,26 @@ def test_optimize_result_accepts_constraint_note():
     payload = _valid_optimize_result_payload()
     payload["compareNote"] = None
     payload["constraintNote"] = "Trimmed 2 fund(s) to satisfy the 3-holding cap."
+    payload["robustOptimizationNote"] = None
     result = OptimizeResult.model_validate(payload)
     assert result.constraint_note == "Trimmed 2 fund(s) to satisfy the 3-holding cap."
 
     payload["constraintNote"] = None
     result = OptimizeResult.model_validate(payload)
     assert result.constraint_note is None
+
+
+def test_optimize_result_accepts_robust_optimization_note():
+    payload = _valid_optimize_result_payload()
+    payload["compareNote"] = None
+    payload["constraintNote"] = None
+    payload["robustOptimizationNote"] = "Robust optimization: averaged 487 of 500 resamples."
+    result = OptimizeResult.model_validate(payload)
+    assert result.robust_optimization_note == "Robust optimization: averaged 487 of 500 resamples."
+
+    payload["robustOptimizationNote"] = None
+    result = OptimizeResult.model_validate(payload)
+    assert result.robust_optimization_note is None
 
 
 def test_rolling_window_mode_defaults_to_expanding():
