@@ -31,6 +31,7 @@ from backend.app.optimizer import (
     holdings,
     inputs,
     report,
+    robust,
     rolling,
     solvers,
 )
@@ -75,7 +76,14 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         }
         mu = posterior
 
-    optimal_weights, constraint_note = holdings.enforce_max_holdings(request, mu, sigma, returns)
+    robust_initial_weights = None
+    robust_optimization_note = None
+    if request.robust_optimization:
+        robust_initial_weights, robust_optimization_note = robust.resample_and_solve(request, mu, sigma, returns)
+
+    optimal_weights, constraint_note = holdings.enforce_max_holdings(
+        request, mu, sigma, returns, initial_weights=robust_initial_weights
+    )
 
     # A rolling-evaluation failure never blocks the primary weights result
     # (design spec). run_rolling_evaluation raises
@@ -146,6 +154,7 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         "feasibility": "ok",
         "feasibilityMessage": None,
         "robustNote": rolling_note,
+        "robustOptimizationNote": robust_optimization_note,
         "constraintNote": constraint_note,
         "optimalWeights": optimal_weights,
         "compareWeights": compare_weights,

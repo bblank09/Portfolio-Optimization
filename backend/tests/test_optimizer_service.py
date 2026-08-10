@@ -149,3 +149,15 @@ def test_run_optimize_enforces_max_holdings(two_real_fund_request):
     held = [pid for pid, w in result.optimal_weights.items() if w > 0.5]
     assert len(held) == 1
     assert result.constraint_note is not None
+
+
+def test_run_optimize_applies_robust_optimization_when_enabled(two_real_fund_request):
+    robust_request = two_real_fund_request.model_copy(update={"robust_optimization": True})
+    result = run_optimize(robust_request)
+    assert result.robust_optimization_note is not None
+    assert sum(result.optimal_weights.values()) == pytest.approx(100, abs=0.5)
+
+
+def test_run_optimize_leaves_robust_optimization_note_none_when_disabled(two_real_fund_request):
+    result = run_optimize(two_real_fund_request)
+    assert result.robust_optimization_note is None

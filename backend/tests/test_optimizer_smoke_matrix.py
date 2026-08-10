@@ -179,6 +179,9 @@ def test_every_goal_and_risk_measure_combination_is_reachable(
     # specific fixture/cap combination.
     held_count = sum(1 for w in result.optimal_weights.values() if w > 0.5)
     assert held_count <= request.constraints.max_holdings
+    # rollingWindowMode's default ("expanding") must not silently change --
+    # cheap confirming check alongside Task 3's dedicated regression tests.
+    assert request.constraints.rolling_window_mode.value == "expanding"
 
 
 @pytest.mark.parametrize("optimization_frequency", ["monthly", "quarterly", "annually"])
@@ -230,3 +233,20 @@ def test_black_litterman_comparison_is_built_on_unadjusted_mu(synthetic_panel, m
     # And the BL posterior really did differ, so the check above is not vacuous.
     assert result.black_litterman is not None
     assert result.black_litterman.adjusted_return_pct != result.black_litterman.equilibrium_return_pct
+
+
+@pytest.mark.parametrize("goal", ["max_sharpe", "min_variance", "risk_parity"])
+def test_robust_optimization_smoke_across_a_few_goals(goal, synthetic_panel):
+    """Proves robust optimization (500-resample Michaud averaging) doesn't
+    crash or silently no-op for a SAMPLE of goals -- not every goal x risk
+    measure combination, which would multiply this file's already-112-case
+    runtime by up to 500x given robust optimization's real per-call cost.
+    Correctness in depth is covered by test_robust.py and
+    test_optimizer_service.py; this is only a reachability smoke check.
+    """
+    request = _request(goal, "std_dev")
+    request = request.model_copy(update={"robust_optimization": True})
+    result = service.run_optimize(request)
+
+    assert sum(result.optimal_weights.values()) == pytest.approx(100, abs=0.5)
+    assert result.robust_optimization_note is not None

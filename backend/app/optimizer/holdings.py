@@ -25,9 +25,16 @@ _MIN_HOLDING_PCT = 0.5
 
 
 def enforce_max_holdings(
-    request: OptimizeRequest, mu: pd.Series, sigma: pd.DataFrame, returns: pd.DataFrame
+    request: OptimizeRequest,
+    mu: pd.Series,
+    sigma: pd.DataFrame,
+    returns: pd.DataFrame,
+    *,
+    initial_weights: dict[str, float] | None = None,
 ) -> tuple[dict[str, float], str | None]:
-    """Solves once via the normal dispatch; if more funds hold weight than
+    """Solves once via the normal dispatch (or uses initial_weights as the
+    initial solve, when provided, e.g. robust.resample_and_solve's Monte
+    Carlo average); if more funds hold weight than
     request.constraints.max_holdings allows, iteratively pins the
     smallest-weight fund's bounds to zero (via a per-request fund_bounds
     override -- the same mechanism FundBound already provides, no new
@@ -38,7 +45,13 @@ def enforce_max_holdings(
     the main solve result is always returned.
     """
     max_holdings = request.constraints.max_holdings
-    weights = solvers.solve_for_goal(request, mu, sigma, returns)
+    # initial_weights lets a caller supply an already-computed initial
+    # solve (e.g. robust.resample_and_solve's Monte Carlo average) instead
+    # of a plain solve_for_goal call -- only the INITIAL solve is
+    # substitutable; every trim-loop re-solve below still calls plain
+    # solve_for_goal (re-running 500 resamples per trimmed fund would be
+    # far too expensive, and is out of this parameter's scope).
+    weights = initial_weights if initial_weights is not None else solvers.solve_for_goal(request, mu, sigma, returns)
     held = [pid for pid, w in weights.items() if w > _MIN_HOLDING_PCT]
     if len(held) <= max_holdings:
         return weights, None
