@@ -58,6 +58,14 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
     mu, sigma = inputs.build_mu_sigma(request, returns)
 
     bl_result = None
+    # The ORIGINAL (historical / override-derived) expected returns, kept
+    # before Black-Litterman rebinds `mu` to the posterior below. Only the
+    # comparison portfolio uses it: everything else downstream (solve,
+    # frontier, markers, asset summary) intentionally works in the space the
+    # solve actually happened in. A max_sharpe comparison computed on the BL
+    # posterior IS the BL solve -- they share an objective code -- which made
+    # compareWeights bit-identical to optimalWeights.
+    original_mu = mu
     if request.goal.value == "black_litterman":
         equilibrium, posterior = black_litterman.blend_posterior(request, mu, sigma)
         bl_result = {
@@ -82,7 +90,7 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
             "at the selected frequency."
         )
 
-    compare_weights, compare_note = comparison.build_comparison_weights(request, mu, sigma, returns)
+    compare_weights, compare_note = comparison.build_comparison_weights(request, original_mu, sigma, returns)
     benchmark_comparison = comparison.build_benchmark_comparison(request, optimal_weights, returns)
 
     compared_risk_value = None

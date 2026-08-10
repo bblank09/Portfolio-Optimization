@@ -7,6 +7,7 @@ main solve, why a comparison failure never fails the whole request).
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -14,6 +15,8 @@ import pandas as pd
 from backend.app.domain.optimize_schemas import ObjectiveGoal, OptimizeRequest
 from backend.app.engine import metrics
 from backend.app.optimizer import inputs, solvers
+
+logger = logging.getLogger("app.optimize")
 
 _UNIVERSE_PATH = Path("data/sec/mvp_fund_universe.csv")
 
@@ -94,7 +97,25 @@ def build_comparison_weights(
     if compare_against == "current":
         if not request.current_weight_pct:
             return None, None
-        return dict(request.current_weight_pct), None
+        # Restrict to the optimized fund set and renormalize to 100. Raw
+        # passthrough leaked phantom proj_ids the frontend cannot resolve,
+        # and scored a partially-invested portfolio under a comparedValue
+        # that claims comparability with the fully-invested optimized one
+        # (solvers.realized_risk silently drops unknown ids). Degrading with
+        # a note beats failing a request whose main solve is fine.
+        held = {pid: request.current_weight_pct.get(pid, 0.0) for pid in proj_ids}
+        total = sum(held.values())
+        if total <= 0:
+            return None, None
+        dropped = set(request.current_weight_pct) - set(proj_ids)
+        note = None
+        if dropped or abs(total - 100) > 0.5:
+            note = (
+                "Current holdings were rescaled to the optimized fund set"
+                + (f" (excluded: {', '.join(sorted(dropped))})" if dropped else "")
+                + "."
+            )
+        return {pid: round(v / total * 100, 4) for pid, v in held.items()}, note
 
     if compare_against == "equal_weighted":
         return _equal_weighted_weights(request, proj_ids), None
@@ -108,7 +129,14 @@ def build_comparison_weights(
     alt_request = request.model_copy(update={"goal": ObjectiveGoal(compare_against)})
     try:
         return solvers.solve_for_goal(alt_request, mu, sigma, returns), None
-    except (ValueError, RuntimeError) as exc:
+    # Deliberately broad: riskfolio-lib internals raise bare KeyError /
+    # NameError / IndexError on failure (see solvers.py's module docstring
+    # and api/optimize.py's comments, e.g. "NameError: The limits of the
+    # frontier can't be found"). Any of those escaping here would turn a
+    # fully successful main solve into a 500, which is exactly what
+    # compareNote exists to prevent.
+    except Exception as exc:
+        logger.exception("comparison solve failed: compare_against=%s", compare_against)
         return None, f"Comparison against {compare_against} could not be computed: {exc}"
 
 
@@ -146,6 +174,15 @@ def build_benchmark_comparison(
     benchmark_returns = inputs.load_benchmark_returns(benchmark_proj_id, request)
     portfolio_returns = inputs.portfolio_return_series(returns, optimal_weights)
     ppy = inputs.periods_per_year(request)
+
+    # Align ONCE, and score both metrics on the same sample. metrics.
+    # tracking_error self-aligns (inner join + dropna) but metrics.
+    # annualized_return does not -- it annualizes each series over its own
+    # length. At daily/weekly frequency the two series can differ in length,
+    # which would put an excess return measured over two different horizons
+    # next to a tracking error measured on their intersection.
+    aligned = pd.concat([portfolio_returns, benchmark_returns], axis=1).dropna()
+    portfolio_returns, benchmark_returns = aligned.iloc[:, 0], aligned.iloc[:, 1]
 
     excess_return_pct = (
         metrics.annualized_return(portfolio_returns, ppy) - metrics.annualized_return(benchmark_returns, ppy)

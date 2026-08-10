@@ -69,7 +69,15 @@ def _assert_rolling_is_not_degenerate(result: OptimizeResult) -> None:
         assert len(stats) > 1, f"every rolling fold reported the identical stats {stats}"
 
 
-def _request(goal: str, risk_measure: str, optimization_frequency: str = "quarterly") -> OptimizeRequest:
+COMPARE_AGAINSTS = ["equal_weighted", "max_sharpe", "risk_parity", "inverse_volatility"]
+
+
+def _request(
+    goal: str,
+    risk_measure: str,
+    optimization_frequency: str = "quarterly",
+    compare_against: str = "equal_weighted",
+) -> OptimizeRequest:
     payload = {
         "funds": [{"projId": p, "displayName": f"Fund {p}"} for p in PROJ_IDS],
         "fundBounds": {}, "currentWeightPct": {}, "fundGroups": {},
@@ -90,7 +98,7 @@ def _request(goal: str, risk_measure: str, optimization_frequency: str = "quarte
             "longOnly": True, "minWeightPct": 0, "maxWeightPct": 100,
             "groupConstraintsEnabled": False, "maxHoldings": 20,
             "lookbackPeriodMonths": 12, "optimizationFrequency": optimization_frequency,
-            "riskFreeRatePct": 1.5, "compareAgainst": "equal_weighted",
+            "riskFreeRatePct": 1.5, "compareAgainst": compare_against,
             "maxTurnoverPct": None, "maxTrackingErrorPct": None,
         },
     }
@@ -114,10 +122,13 @@ def synthetic_panel(monkeypatch):
     return returns
 
 
+@pytest.mark.parametrize("compare_against", COMPARE_AGAINSTS)
 @pytest.mark.parametrize("goal", [g.value for g in ObjectiveGoal])
 @pytest.mark.parametrize("risk_measure", [m.value for m in RiskMeasure])
-def test_every_goal_and_risk_measure_combination_is_reachable(goal, risk_measure, synthetic_panel):
-    request = _request(goal, risk_measure)
+def test_every_goal_and_risk_measure_combination_is_reachable(
+    goal, risk_measure, compare_against, synthetic_panel
+):
+    request = _request(goal, risk_measure, compare_against=compare_against)
     result = service.run_optimize(request)
 
     assert isinstance(result, OptimizeResult)
@@ -140,8 +151,22 @@ def test_every_goal_and_risk_measure_combination_is_reachable(goal, risk_measure
     # goal/risk-measure combination -- not left blank the way an earlier
     # sub-project's smoke matrix let a real bug hide behind a too-weak
     # assertion (see the rolling-evaluator final review's finding).
-    if request.constraints.compare_against.value != "none":
-        assert result.compare_weights is not None
+    assert result.compare_weights is not None
+    assert sum(result.compare_weights.values()) == pytest.approx(100, abs=0.5)
+    assert set(result.compare_weights) == set(PROJ_IDS)
+    # A same-goal comparison is legitimately identical; every other pairing
+    # must differ, which is what catches a comparison silently computed on
+    # the main solve's own (e.g. Black-Litterman-adjusted) inputs.
+    # A corner solution (everything in one asset) is a place two different
+    # objectives can legitimately land independently -- semi_variance sends
+    # both black_litterman and max_sharpe to 100% A on this panel -- so it
+    # cannot distinguish agreement from a leaked-input bug either way.
+    is_corner = max(result.optimal_weights.values()) > 99.9
+    if compare_against != goal and not is_corner:
+        max_delta = max(
+            abs(result.compare_weights[p] - result.optimal_weights[p]) for p in PROJ_IDS
+        )
+        assert max_delta > 0.01, "comparison portfolio is identical to the optimized portfolio"
 
 
 @pytest.mark.parametrize("optimization_frequency", ["monthly", "quarterly", "annually"])
@@ -165,3 +190,31 @@ def test_rolling_is_never_degenerate_at_any_optimization_frequency(
         assert result.robust_note is not None
     else:
         assert len(result.rolling) >= 2
+
+
+def test_black_litterman_comparison_is_built_on_unadjusted_mu(synthetic_panel, monkeypatch):
+    """The comparison must answer "how does my BL portfolio compare to a plain
+    baseline on HISTORICAL expected returns", so it gets the ORIGINAL mu --
+    never the BL posterior. Passing the posterior made a ``max_sharpe``
+    comparison bit-identical to the BL solve (they share an objective code),
+    which the weight-delta assertion above only catches on non-corner panels.
+    This checks the wiring directly.
+    """
+    from backend.app.optimizer import comparison
+
+    seen: dict[str, pd.Series] = {}
+    real = comparison.build_comparison_weights
+
+    def spy(request, mu, sigma, returns):
+        seen["mu"] = mu.copy()
+        return real(request, mu, sigma, returns)
+
+    monkeypatch.setattr(comparison, "build_comparison_weights", spy)
+    request = _request("black_litterman", "std_dev", compare_against="max_sharpe")
+    result = service.run_optimize(request)
+
+    historical_mu = inputs.build_mu_sigma(request, synthetic_panel)[0]
+    pd.testing.assert_series_equal(seen["mu"], historical_mu)
+    # And the BL posterior really did differ, so the check above is not vacuous.
+    assert result.black_litterman is not None
+    assert result.black_litterman.adjusted_return_pct != result.black_litterman.equilibrium_return_pct
