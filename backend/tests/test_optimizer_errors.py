@@ -9,3 +9,7 @@ def test_optimizer_error_codes_exist():
 
 def test_insufficient_rolling_history_error_code_exists():
     assert ErrorCode.INSUFFICIENT_ROLLING_HISTORY == "INSUFFICIENT_ROLLING_HISTORY"
+
+
+def test_benchmark_data_unavailable_error_code_exists():
+    assert ErrorCode.BENCHMARK_DATA_UNAVAILABLE == "BENCHMARK_DATA_UNAVAILABLE"
