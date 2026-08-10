@@ -1,9 +1,27 @@
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
+from backend.app.core.limiter import limiter
 from backend.app.domain.enums import ErrorCode
 from backend.app.main import app
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiters():
+    """Both the route's blanket 10/minute limiter and the robust-optimization
+    -specific limiter use module-level in-memory state that persists across
+    the whole test session (same TestClient remote address every time). Reset
+    both before each test so one test's request count doesn't bleed into the
+    next test's rate-limit assertions."""
+    from backend.app.api import optimize as optimize_module
+
+    limiter.reset()
+    optimize_module._robust_optimization_request_times.clear()
+    yield
+    limiter.reset()
+    optimize_module._robust_optimization_request_times.clear()
 
 
 def _valid_optimize_payload() -> dict:
@@ -92,6 +110,31 @@ def test_missing_nav_cache_returns_nav_cache_missing():
 
     assert response.status_code == 503
     assert response.json()["code"] == ErrorCode.NAV_CACHE_MISSING
+
+
+def test_robust_optimization_requests_are_rate_limited_more_strictly():
+    """A robust-optimization-specific limiter (2/minute) must fire
+    independently of, and stricter than, the route's blanket 10/minute
+    limiter -- proving it before only 3 requests would trip the blanket
+    limit."""
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = {**_valid_optimize_payload(), "robustOptimization": True}
+
+    responses = [client.post("/api/optimize", json=payload) for _ in range(3)]
+    statuses = [r.status_code for r in responses]
+
+    assert statuses[:2].count(429) == 0
+    assert statuses[2] == 429
+
+
+def test_non_robust_requests_are_unaffected_by_the_robust_rate_limit():
+    """3 consecutive non-robust requests must NOT trip the robust-specific
+    limiter -- it only counts robustOptimization=true requests."""
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = {**_valid_optimize_payload(), "robustOptimization": False}
+
+    responses = [client.post("/api/optimize", json=payload) for _ in range(3)]
+    assert all(r.status_code != 429 for r in responses)
 
 
 def test_unexpected_exception_is_translated_to_coded_server_error():
