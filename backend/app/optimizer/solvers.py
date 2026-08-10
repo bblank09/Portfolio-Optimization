@@ -80,6 +80,42 @@ def _asset_bounds(request: OptimizeRequest, proj_ids: list[str]) -> tuple[list[f
     return lower, upper
 
 
+def _group_constraint_rows(
+    request: OptimizeRequest, proj_ids: list[str]
+) -> tuple[list[np.ndarray], list[float]] | None:
+    """The ``A @ w <= b`` rows encoding every group's min/max weight bound, as
+    ``(rows_a, rows_b)`` with each row shaped ``(1, n_assets)`` and each bound
+    a weight *fraction* (0..1). Returns ``None`` when group constraints are
+    disabled for this request.
+
+    One row pair per group actually present in ``asset_groups``: a ``+1`` row
+    summing the member funds against ``max_weight_pct``, and its negation
+    against ``-min_weight_pct``. Funds absent from ``fund_groups`` are never
+    included in any row, so they stay unconstrained by this mechanism.
+
+    Extracted from ``_build_portfolio`` so the HRP path -- whose
+    ``rp.HCPortfolio`` has no linear-constraint hook at all -- can validate its
+    solved weights against the EXACT same rows post-solve rather than silently
+    dropping the user's group constraints.
+    """
+    if not request.constraints.group_constraints_enabled:
+        return None
+    n = len(proj_ids)
+    rows_a: list[np.ndarray] = []
+    rows_b: list[float] = []
+    for group_letter, group in request.asset_groups.items():
+        member_indices = [i for i, pid in enumerate(proj_ids) if request.fund_groups.get(pid) == group_letter]
+        if not member_indices:
+            continue
+        row = np.zeros(n)
+        row[member_indices] = 1.0
+        rows_a.append(row.reshape(1, -1))
+        rows_b.append(group.max_weight_pct / 100)
+        rows_a.append((-row).reshape(1, -1))
+        rows_b.append(-group.min_weight_pct / 100)
+    return rows_a, rows_b
+
+
 def _build_portfolio(
     request: OptimizeRequest,
     mu: pd.Series,
@@ -111,23 +147,15 @@ def _build_portfolio(
     rows_a = [a_upper, a_lower]
     rows_b = upper + [-lo for lo in lower]
 
-    # Group weight caps: one extra row pair per group actually present in
-    # asset_groups, ONLY when group_constraints_enabled -- reuses the exact
-    # same A @ w <= b mechanism as the per-fund bounds above, just with a
-    # row that sums the member funds instead of isolating one. Funds absent
-    # from fund_groups are simply never included in any row, so they stay
-    # unconstrained by this mechanism.
-    if request.constraints.group_constraints_enabled:
-        for group_letter, group in request.asset_groups.items():
-            member_indices = [i for i, pid in enumerate(proj_ids) if request.fund_groups.get(pid) == group_letter]
-            if not member_indices:
-                continue
-            row = np.zeros(n)
-            row[member_indices] = 1.0
-            rows_a.append(row.reshape(1, -1))
-            rows_b.append(group.max_weight_pct / 100)
-            rows_a.append((-row).reshape(1, -1))
-            rows_b.append(-group.min_weight_pct / 100)
+    # Group weight caps: same A @ w <= b mechanism as the per-fund bounds
+    # above, just with rows that sum member funds instead of isolating one.
+    # Built by the shared _group_constraint_rows helper so the HRP path's
+    # post-solve validation checks the identical rows.
+    group_rows = _group_constraint_rows(request, proj_ids)
+    if group_rows is not None:
+        group_a, group_b = group_rows
+        rows_a.extend(group_a)
+        rows_b.extend(group_b)
 
     port.ainequality = np.vstack(rows_a)
     port.binequality = np.array(rows_b).reshape(-1, 1)
@@ -321,7 +349,26 @@ def solve_hrp(request: OptimizeRequest, returns: pd.DataFrame) -> dict[str, floa
     )
     if w is None:
         raise RuntimeError("SOLVER_NON_CONVERGENCE")
-    return {proj_id: float(w.loc[proj_id, "weights"]) * 100 for proj_id in w.index}
+    weights = {proj_id: float(w.loc[proj_id, "weights"]) * 100 for proj_id in w.index}
+
+    # POST-SOLVE group-constraint validation. rp.HCPortfolio exposes only
+    # per-asset w_min/w_max -- it has no ainequality/binequality (or any other
+    # linear-constraint) hook, so group rows cannot be fed INTO the HRP
+    # allocation the way _build_portfolio feeds them to rp.Portfolio. Before
+    # this check, a group cap the user set was silently dropped on the HRP
+    # path and a violating allocation was returned as a clean solve. HRP now
+    # fails loudly, the same way every other goal already fails when its
+    # constraints cannot be satisfied. Same 0.5 (percentage-point) tolerance
+    # and same raise convention as solve_mean_variance's per-fund check.
+    group_rows = _group_constraint_rows(request, proj_ids)
+    if group_rows is not None:
+        group_a, group_b = group_rows
+        w_vec = _weights_vector(weights, proj_ids)
+        for row, bound in zip(group_a, group_b, strict=True):
+            if (row @ w_vec).item() * 100 > bound * 100 + 0.5:
+                raise RuntimeError("INFEASIBLE_CONSTRAINTS")
+
+    return weights
 
 
 def solve_for_goal(

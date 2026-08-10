@@ -96,7 +96,14 @@ def _request(
         "blackLitterman": None, "benchmarkProjId": None,
         "constraints": {
             "longOnly": True, "minWeightPct": 0, "maxWeightPct": 100,
-            "groupConstraintsEnabled": False, "maxHoldings": 20,
+            # 2, not the fund count -- a cap of 20 on a 3-fund universe can
+            # never bind, which made the held_count assertion below a
+            # universal no-op across all 112 parametrized cases (the final
+            # review's finding). At 2, diversifying goals (risk_parity, hrp,
+            # min_variance) genuinely have to trim from 3 down to 2, while
+            # naturally-concentrated ones may already satisfy it -- both are
+            # fine, the point is the assertion is now a real check.
+            "groupConstraintsEnabled": False, "maxHoldings": 2,
             "lookbackPeriodMonths": 12, "optimizationFrequency": optimization_frequency,
             "riskFreeRatePct": 1.5, "compareAgainst": compare_against,
             "maxTurnoverPct": None, "maxTrackingErrorPct": None,

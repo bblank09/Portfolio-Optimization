@@ -17,9 +17,10 @@ import pandas as pd
 from backend.app.domain.optimize_schemas import FundBound, OptimizeRequest
 from backend.app.optimizer import solvers
 
-# A weight below this is treated as "not really held" -- consistent with
-# the tolerance diagnostics.py already uses for binding-constraint
-# detection elsewhere in this codebase.
+# A weight below this (in percent) is treated as "not really held" --
+# the same +/-0.5 percentage-point tolerance solvers.solve_mean_variance
+# already applies in its post-solve bound check, so a fund the solver left
+# at solver noise does not count against the cardinality cap.
 _MIN_HOLDING_PCT = 0.5
 
 
@@ -59,9 +60,14 @@ def enforce_max_holdings(
         try:
             candidate_weights = solvers.solve_for_goal(candidate_request, mu, sigma, returns)
         except (ValueError, RuntimeError):
+            progress = (
+                f"{len(dropped)} fund(s) dropped ({', '.join(dropped)})"
+                if dropped
+                else "no fund could be dropped"
+            )
             note = (
                 f"Could not fully trim to the {max_holdings}-holding cap: "
-                f"{len(dropped)} fund(s) dropped ({', '.join(dropped)}) before the solve became "
+                f"{progress} before the solve became "
                 "infeasible; showing the last successful allocation."
             )
             return last_good_weights, note
