@@ -108,8 +108,29 @@ def _build_portfolio(
     n = len(proj_ids)
     a_upper = np.eye(n)
     a_lower = -np.eye(n)
-    port.ainequality = np.vstack([a_upper, a_lower])
-    port.binequality = np.array(upper + [-lo for lo in lower]).reshape(-1, 1)
+    rows_a = [a_upper, a_lower]
+    rows_b = upper + [-lo for lo in lower]
+
+    # Group weight caps: one extra row pair per group actually present in
+    # asset_groups, ONLY when group_constraints_enabled -- reuses the exact
+    # same A @ w <= b mechanism as the per-fund bounds above, just with a
+    # row that sums the member funds instead of isolating one. Funds absent
+    # from fund_groups are simply never included in any row, so they stay
+    # unconstrained by this mechanism.
+    if request.constraints.group_constraints_enabled:
+        for group_letter, group in request.asset_groups.items():
+            member_indices = [i for i, pid in enumerate(proj_ids) if request.fund_groups.get(pid) == group_letter]
+            if not member_indices:
+                continue
+            row = np.zeros(n)
+            row[member_indices] = 1.0
+            rows_a.append(row.reshape(1, -1))
+            rows_b.append(group.max_weight_pct / 100)
+            rows_a.append((-row).reshape(1, -1))
+            rows_b.append(-group.min_weight_pct / 100)
+
+    port.ainequality = np.vstack(rows_a)
+    port.binequality = np.array(rows_b).reshape(-1, 1)
 
     # `apply_goal_targets=False` is used by frontier.py's sweep: `upperdev`
     # (a volatility ceiling) and `lowerret` (a return floor) truncate the
