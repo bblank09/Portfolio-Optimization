@@ -123,9 +123,22 @@ def _valid_optimize_result_payload() -> dict:
 def test_optimize_result_accepts_compare_note():
     payload = _valid_optimize_result_payload()
     payload["compareNote"] = "max_sharpe comparison could not converge"
+    payload["constraintNote"] = None
     result = OptimizeResult.model_validate(payload)
     assert result.compare_note == "max_sharpe comparison could not converge"
 
     payload["compareNote"] = None
     result = OptimizeResult.model_validate(payload)
     assert result.compare_note is None
+
+
+def test_optimize_result_accepts_constraint_note():
+    payload = _valid_optimize_result_payload()
+    payload["compareNote"] = None
+    payload["constraintNote"] = "Trimmed 2 fund(s) to satisfy the 3-holding cap."
+    result = OptimizeResult.model_validate(payload)
+    assert result.constraint_note == "Trimmed 2 fund(s) to satisfy the 3-holding cap."
+
+    payload["constraintNote"] = None
+    result = OptimizeResult.model_validate(payload)
+    assert result.constraint_note is None
