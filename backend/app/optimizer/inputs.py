@@ -8,39 +8,54 @@ from backend.app.sec.cache import load_nav_panel
 _PERIODS_PER_YEAR = {"daily": 252, "weekly": 52, "monthly": 12}
 
 
-def build_returns_panel(request: OptimizeRequest) -> pd.DataFrame:
-    """Load, align, and slice the NAV panel for the request's funds and
-    time period, then convert to simple period returns.
+def _load_returns_for(proj_ids: list[str], request: OptimizeRequest, error_code: str) -> pd.DataFrame:
+    """Load, align, and slice the NAV panel for the given proj_ids and the
+    request's time period, then convert to simple period returns. Shared by
+    build_returns_panel (the optimized funds) and load_benchmark_returns (an
+    independent benchmark fund) so the two paths can never diverge -- only
+    the raised error_code differs between callers.
 
-    Raises ``ValueError("INSUFFICIENT_NAV_HISTORY")`` -- the bare ErrorCode
-    name, the same convention ``solvers.py`` uses, so the API route's
-    ``getattr(ErrorCode, str(exc))`` lookup resolves it exactly rather than
-    landing on a default -- when the aligned window is unusable.
-
-    "Unusable" includes ANY missing observation, not just a fund that is
-    entirely absent. ``align_nav_panel`` does not drop partial-NaN rows and
-    ``pct_change().dropna(how="all")`` keeps rows that are only partly NaN,
-    so a mid-window gap used to survive into the covariance estimate. Per
-    CLAUDE.md's landmine list a gap in the requested range is a hard error --
-    never forward-filled, never interpolated.
+    Raises ``ValueError(error_code)`` -- the bare ErrorCode name, the same
+    convention every other raise site in this module uses -- when the
+    aligned window is unusable. "Unusable" includes ANY missing
+    observation, not just a proj_id that is entirely absent (see
+    build_returns_panel's original docstring for why: a mid-window gap must
+    never be forward-filled or interpolated).
     """
-    proj_ids = [fund.proj_id for fund in request.funds]
     # A missing parquet cache surfaces here as FileNotFoundError; it is left
     # to propagate so the API route can map it to NAV_CACHE_MISSING (503),
     # matching backend/app/api/backtests.py's handling of the same case.
     nav = align_nav_panel(load_nav_panel(proj_ids), frequency=request.data_frequency.value)
     window = nav.loc[pd.Timestamp(request.time_period.start_date):pd.Timestamp(request.time_period.end_date), proj_ids]
     if window.empty or window.isna().to_numpy().any():
-        raise ValueError("INSUFFICIENT_NAV_HISTORY")
-    # Same validator the sibling /api/backtests route runs; error-severity
-    # issues (empty panel, non-positive NAV) are fatal for an optimization.
+        raise ValueError(error_code)
     issues = validate_nav_panel(window, as_of=pd.Timestamp(request.time_period.end_date))
     if any(issue["severity"] == "error" for issue in issues):
-        raise ValueError("INSUFFICIENT_NAV_HISTORY")
+        raise ValueError(error_code)
     returns = window.pct_change().dropna(how="all")
     if returns.empty:
-        raise ValueError("INSUFFICIENT_NAV_HISTORY")
+        raise ValueError(error_code)
     return returns
+
+
+def build_returns_panel(request: OptimizeRequest) -> pd.DataFrame:
+    """Load, align, and slice the NAV panel for the request's funds and
+    time period, then convert to simple period returns. See
+    _load_returns_for for the shared implementation and error-raising
+    convention (this wrapper always raises "INSUFFICIENT_NAV_HISTORY")."""
+    proj_ids = [fund.proj_id for fund in request.funds]
+    return _load_returns_for(proj_ids, request, "INSUFFICIENT_NAV_HISTORY")
+
+
+def load_benchmark_returns(benchmark_proj_id: str, request: OptimizeRequest) -> pd.Series:
+    """The benchmark fund's own return series, aligned and validated
+    identically to the optimized funds' panel via _load_returns_for, but
+    raising "BENCHMARK_DATA_UNAVAILABLE" instead of
+    "INSUFFICIENT_NAV_HISTORY" on failure -- per this project's decision,
+    insufficient benchmark data is a hard error for the whole request, not
+    a degrade-gracefully case."""
+    panel = _load_returns_for([benchmark_proj_id], request, "BENCHMARK_DATA_UNAVAILABLE")
+    return panel[benchmark_proj_id]
 
 
 def periods_per_year(request: OptimizeRequest) -> int:

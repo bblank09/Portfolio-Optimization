@@ -140,3 +140,83 @@ def test_raise_convention_uses_bare_error_code_name(monkeypatch):
     with pytest.raises(ValueError) as excinfo:
         inputs_module.build_returns_panel(_request())
     assert getattr(ErrorCode, str(excinfo.value), None) is ErrorCode.INSUFFICIENT_NAV_HISTORY
+
+
+def test_load_benchmark_returns_against_real_cache():
+    from backend.app.optimizer.inputs import load_benchmark_returns
+
+    request = OptimizeRequest.model_validate({
+        "funds": [
+            {"projId": "M0209_2548", "displayName": "K-SET50"},
+            {"projId": "M0155_2547", "displayName": "M-S50"},
+        ],
+        "fundBounds": {}, "currentWeightPct": {}, "fundGroups": {},
+        "assetGroups": {L: {"name": "", "minWeightPct": 0, "maxWeightPct": 100} for L in "ABCDEF"},
+        "timePeriod": {"startDate": "2016-01-31", "endDate": "2019-12-31"},
+        "dataFrequency": "monthly", "goal": "max_sharpe", "riskMeasure": "std_dev",
+        "tailConfidence": 95, "targetAnnualVolatilityPct": 10.0, "targetAnnualReturnPct": 6.0,
+        "robustOptimization": False, "useHistoricalReturns": True,
+        "useHistoricalVolatility": True, "useHistoricalCorrelations": True,
+        "expectedReturnOverrides": {}, "volatilityOverrides": {}, "correlationOverrides": {},
+        "returnMethod": "historical_mean", "covarianceMethod": "sample", "blackLitterman": None,
+        "benchmarkProjId": None,
+        "constraints": {
+            "longOnly": True, "minWeightPct": 0, "maxWeightPct": 100,
+            "groupConstraintsEnabled": False, "maxHoldings": 20,
+            "lookbackPeriodMonths": 12, "optimizationFrequency": "quarterly",
+            "riskFreeRatePct": 1.5, "compareAgainst": "none",
+            "maxTurnoverPct": None, "maxTrackingErrorPct": None,
+        },
+    })
+    # M0209_2548 is one of the fixture's own confirmed-present funds, used
+    # here purely as a stand-in benchmark to prove the loader works against
+    # the real cache -- nothing prevents a benchmark from also being one of
+    # the optimized funds.
+    series = load_benchmark_returns("M0209_2548", request)
+    assert not series.empty
+    assert series.index.is_monotonic_increasing
+
+
+def test_load_benchmark_returns_raises_on_missing_fund(monkeypatch):
+    import pandas as pd
+
+    from backend.app.optimizer import inputs as inputs_module
+    from backend.app.optimizer.inputs import load_benchmark_returns
+
+    request = OptimizeRequest.model_validate({
+        "funds": [
+            {"projId": "M0209_2548", "displayName": "K-SET50"},
+            {"projId": "M0155_2547", "displayName": "M-S50"},
+        ],
+        "fundBounds": {}, "currentWeightPct": {}, "fundGroups": {},
+        "assetGroups": {L: {"name": "", "minWeightPct": 0, "maxWeightPct": 100} for L in "ABCDEF"},
+        "timePeriod": {"startDate": "2016-01-31", "endDate": "2019-12-31"},
+        "dataFrequency": "monthly", "goal": "max_sharpe", "riskMeasure": "std_dev",
+        "tailConfidence": 95, "targetAnnualVolatilityPct": 10.0, "targetAnnualReturnPct": 6.0,
+        "robustOptimization": False, "useHistoricalReturns": True,
+        "useHistoricalVolatility": True, "useHistoricalCorrelations": True,
+        "expectedReturnOverrides": {}, "volatilityOverrides": {}, "correlationOverrides": {},
+        "returnMethod": "historical_mean", "covarianceMethod": "sample", "blackLitterman": None,
+        "benchmarkProjId": None,
+        "constraints": {
+            "longOnly": True, "minWeightPct": 0, "maxWeightPct": 100,
+            "groupConstraintsEnabled": False, "maxHoldings": 20,
+            "lookbackPeriodMonths": 12, "optimizationFrequency": "quarterly",
+            "riskFreeRatePct": 1.5, "compareAgainst": "none",
+            "maxTurnoverPct": None, "maxTrackingErrorPct": None,
+        },
+    })
+
+    def fake_load_nav_panel(proj_ids):
+        # simulates a proj_id with zero cached NAV rows -- shaped like the
+        # real load_nav_panel's return (a DatetimeIndex, just empty, and
+        # with the requested proj_id present as a column). A bare
+        # pd.DataFrame() has neither: its RangeIndex makes align_nav_panel's
+        # resample() raise an unrelated TypeError, and a missing column
+        # makes the later `.loc[..., proj_ids]` raise KeyError -- both
+        # before ever reaching the ValueError this test means to exercise.
+        return pd.DataFrame(columns=proj_ids, index=pd.DatetimeIndex([]))
+
+    monkeypatch.setattr(inputs_module, "load_nav_panel", fake_load_nav_panel)
+    with pytest.raises(ValueError, match="BENCHMARK_DATA_UNAVAILABLE"):
+        load_benchmark_returns("NONEXISTENT_PROJ_ID", request)
