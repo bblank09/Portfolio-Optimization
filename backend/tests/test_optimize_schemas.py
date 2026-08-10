@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from backend.app.domain.optimize_schemas import OptimizeRequest
+from backend.app.domain.optimize_schemas import OptimizeRequest, OptimizeResult
 
 
 MINIMAL_REQUEST_JSON = {
@@ -80,3 +80,52 @@ def test_black_litterman_goal_requires_black_litterman_inputs():
     bad = {**MINIMAL_REQUEST_JSON, "goal": "black_litterman", "blackLitterman": None}
     with pytest.raises(ValidationError):
         OptimizeRequest.model_validate(bad)
+
+
+def _valid_optimize_result_payload() -> dict:
+    """Return a minimal but structurally valid OptimizeResult payload in camelCase JSON format."""
+    return {
+        "feasibility": "optimal",
+        "feasibilityMessage": None,
+        "robustNote": None,
+        "optimalWeights": {"M0209_2548": 0.5, "M0155_2547": 0.5},
+        "compareWeights": None,
+        "riskContributionPct": {"M0209_2548": 0.5, "M0155_2547": 0.5},
+        "frontier": [],
+        "assetSummary": [],
+        "correlations": [],
+        "performanceSummary": [],
+        "rolling": [],
+        "blackLitterman": None,
+        "monthlyReturnsPct": [],
+        "selectedRiskMeasure": {
+            "measure": "std_dev",
+            "label": "Volatility",
+            "optimizedValue": 0.15,
+            "comparedValue": None,
+            "unit": "annual %",
+        },
+        "benchmarkComparison": None,
+        "tradeList": [],
+        "totalTurnoverPct": 0.0,
+        "bindingConstraints": [],
+        "optimalPoint": {
+            "volatilityPct": 0.15,
+            "expectedReturnPct": 0.08,
+            "label": "optimal",
+        },
+        "gmvPoint": None,
+        "tangencyPoint": None,
+        "generatedAt": "2024-01-01T00:00:00",
+    }
+
+
+def test_optimize_result_accepts_compare_note():
+    payload = _valid_optimize_result_payload()
+    payload["compareNote"] = "max_sharpe comparison could not converge"
+    result = OptimizeResult.model_validate(payload)
+    assert result.compare_note == "max_sharpe comparison could not converge"
+
+    payload["compareNote"] = None
+    result = OptimizeResult.model_validate(payload)
+    assert result.compare_note is None

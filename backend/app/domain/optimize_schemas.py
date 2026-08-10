@@ -254,6 +254,7 @@ class OptimizeResult(CamelModel):
     feasibility: str
     feasibility_message: str | None
     robust_note: str | None
+    compare_note: str | None
     optimal_weights: dict[str, float]
     compare_weights: dict[str, float] | None
     risk_contribution_pct: dict[str, float]
