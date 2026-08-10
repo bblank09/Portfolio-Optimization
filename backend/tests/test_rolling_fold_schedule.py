@@ -55,3 +55,42 @@ def test_empty_index_produces_no_folds():
 def test_single_calendar_period_produces_no_folds():
     index = pd.date_range("2021-01-01", "2021-01-31", freq="D")
     assert build_fold_schedule(index, "monthly") == []
+
+
+def test_expanding_mode_leaves_train_start_none():
+    index = pd.date_range("2021-01-01", "2021-06-30", freq="D")
+    folds = build_fold_schedule(index, "monthly")  # mode defaults to "expanding"
+    assert all(f.train_start is None for f in folds)
+
+
+def test_trailing_mode_sets_a_fixed_length_train_start():
+    # 8 months of daily data, monthly cadence, 2-month lookback.
+    index = pd.date_range("2021-01-01", "2021-08-31", freq="D")
+    folds = build_fold_schedule(index, "monthly", mode="trailing", lookback_months=2)
+    assert len(folds) == 7  # 8 distinct months -> 7 folds, same count as expanding mode
+    for fold in folds:
+        assert fold.train_start is not None
+    # Fold 0 (train_end = 2021-01-31) is excluded from the fixed-length
+    # check below: a 2-month lookback from Jan 31 would need data starting
+    # in November 2020, which doesn't exist, so fold 0's train_start
+    # legitimately clamps to index.min() and its window is only 30 days.
+    # That clamping behavior is exactly what
+    # test_trailing_mode_train_start_is_clamped_to_available_history
+    # verifies separately. Folds 1+ have enough prior history for the true
+    # 2-month window, so only those are checked here -- this is the
+    # concrete, discriminating assertion that would fail if trailing mode
+    # silently fell back to expanding behavior.
+    for fold in folds[1:]:
+        window_days = (fold.train_end - fold.train_start).days
+        assert 55 <= window_days <= 65
+
+
+def test_trailing_mode_train_start_is_clamped_to_available_history():
+    # Fold 0 (earliest) with a 2-month lookback on data that only goes back
+    # to index[0] itself -- the trailing window cannot start before the
+    # data actually begins, so train_start must clamp to index[0] rather
+    # than requesting data that doesn't exist.
+    index = pd.date_range("2021-01-01", "2021-08-31", freq="D")
+    folds = build_fold_schedule(index, "monthly", mode="trailing", lookback_months=2)
+    assert folds[0].train_start >= index.min()
+    assert folds[0].train_start <= index.min() + pd.Timedelta(days=31)  # first fold's train_end is end of Feb; a 2-month lookback from there lands close to index[0] itself
