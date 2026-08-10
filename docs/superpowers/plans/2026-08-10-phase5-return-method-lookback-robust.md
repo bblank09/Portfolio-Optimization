@@ -1026,6 +1026,125 @@ git commit -m "feat: wire robust.resample_and_solve into service.run_optimize"
 
 ---
 
+### Task 7: Rate-limit `robustOptimization` requests specifically
+
+**Why this task exists:** Task 5's real-cache measurement (independently reproduced by two separate reviewers: 7.3-7.4s and 6.72s, same order of magnitude) confirmed 500 bootstrap resamples cost several seconds of synchronous wall-clock time per request — far more than a normal `/api/optimize` request. Per explicit decision, the feature ships as-is (still 500 resamples, still synchronous, no architecture change) but gets its OWN, stricter rate limit on top of the route's existing blanket `10/minute` (`backend/app/api/optimize.py`), since a client sending several `robustOptimization: true` requests in quick succession could tie up request-handling capacity disproportionately to a normal request.
+
+**Files:**
+- Modify: `backend/app/api/optimize.py`
+- Test: `backend/tests/test_api_optimize.py`
+
+**Interfaces:**
+- Produces: an additional, in-process rate check specific to `robustOptimization: true` requests, enforced inside `create_optimization` (the existing route handler) — the route's existing blanket `@limiter.limit("10/minute")` decorator is UNCHANGED and still applies to every request regardless of this new check.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `backend/tests/test_api_optimize.py`. Read the file first to match its existing pattern for constructing a `TestClient` and a valid request payload (the same pattern earlier sub-projects' tests in this file already established):
+
+```python
+def test_robust_optimization_requests_are_rate_limited_more_strictly(client, valid_optimize_payload):
+    # Reuse this file's existing TestClient/payload fixtures (check their real
+    # names first) -- adapt request payload construction to match this
+    # file's established helper rather than inventing a new one.
+    payload = {**valid_optimize_payload, "robustOptimization": True}
+
+    responses = [client.post("/api/optimize", json=payload) for _ in range(3)]
+    statuses = [r.status_code for r in responses]
+
+    # The first 2 robust-optimization requests in a short window succeed
+    # (subject to the normal solve outcome, i.e. 200), the 3rd is rejected
+    # with 429 before ever reaching run_optimize -- proving the
+    # robust-specific limiter fires independently of the route's blanket
+    # 10/minute limit (which would not have tripped after only 3 requests).
+    assert statuses[:2].count(429) == 0
+    assert statuses[2] == 429
+
+
+def test_non_robust_requests_are_unaffected_by_the_robust_rate_limit(client, valid_optimize_payload):
+    # 3 consecutive non-robust requests must NOT trip the robust-specific
+    # limiter -- it only counts robustOptimization=true requests.
+    payload = {**valid_optimize_payload, "robustOptimization": False}
+    responses = [client.post("/api/optimize", json=payload) for _ in range(3)]
+    assert all(r.status_code != 429 for r in responses)
+```
+
+If this file has no existing `client`/`valid_optimize_payload` fixtures under those exact names, read the file's real fixture names and adapt — do not invent fixture names that don't exist in the file.
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `/private/tmp/sec_open_data_portfolio_backtester_venv/bin/python3 -m pytest backend/tests/test_api_optimize.py -k robust_optimization_requests -v`
+Expected: FAIL — the 3rd robust-optimization request currently succeeds (or fails for an unrelated reason, e.g. a real solve outcome), not `429`
+
+- [ ] **Step 3: Add the robust-specific rate check**
+
+In `backend/app/api/optimize.py`, add a small in-process tracker and check function above the route handler (after the existing imports, before `router = APIRouter(...)`):
+
+```python
+import time
+from collections import defaultdict
+
+from slowapi.util import get_remote_address
+
+# A second, independent rate limit specific to robustOptimization=true
+# requests, on top of the route's existing blanket @limiter.limit
+# ("10/minute", below). 500 bootstrap resamples measured at 6.7-7.4s
+# wall-clock against the real NAV cache (Phase 5 sub-project 5's design
+# spec/plan) -- several seconds per request, several times more expensive
+# than a normal request, so it gets its own, stricter cap. In-process
+# (not shared across workers) is acceptable for this project's
+# single-process docker-compose deployment (see CLAUDE.md).
+_ROBUST_OPTIMIZATION_RATE_LIMIT = 2
+_ROBUST_OPTIMIZATION_RATE_WINDOW_SECONDS = 60
+_robust_optimization_request_times: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_robust_optimization_rate_limit(client_key: str) -> None:
+    now = time.monotonic()
+    window_start = now - _ROBUST_OPTIMIZATION_RATE_WINDOW_SECONDS
+    recent = [t for t in _robust_optimization_request_times[client_key] if t > window_start]
+    if len(recent) >= _ROBUST_OPTIMIZATION_RATE_LIMIT:
+        raise AppHTTPException(
+            status_code=429,
+            detail="Too many robust-optimization requests. Please wait before retrying.",
+            code=ErrorCode.RATE_LIMITED,
+        )
+    recent.append(now)
+    _robust_optimization_request_times[client_key] = recent
+```
+
+Then, inside `create_optimization`, immediately after the existing `proj_ids = [...]` line (before the `try:` block that calls `run_optimize`), add:
+
+```python
+    if optimize_request.constraints.robust_optimization:
+        _check_robust_optimization_rate_limit(get_remote_address(request))
+```
+
+Check the exact current line order in the file before inserting — this must run BEFORE `run_optimize` is called, so a client that will be rejected never pays for a partial solve.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `/private/tmp/sec_open_data_portfolio_backtester_venv/bin/python3 -m pytest backend/tests/test_api_optimize.py -v`
+Expected: PASS (all tests in the file, including the 2 new ones)
+
+- [ ] **Step 5: Run the full relevant test set**
+
+Run: `/private/tmp/sec_open_data_portfolio_backtester_venv/bin/python3 -m pytest backend/tests/test_api_optimize.py backend/tests/test_optimizer_service.py backend/tests/test_robust.py -v`
+Expected: PASS, all tests — confirm the existing blanket `10/minute` limiter and every other route behavior is unaffected.
+
+- [ ] **Step 6: Run ruff**
+
+Run: `/private/tmp/sec_open_data_portfolio_backtester_venv/bin/python3 -m ruff check backend/app/api/optimize.py backend/tests/test_api_optimize.py`
+Expected: All checks passed
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add backend/app/api/optimize.py backend/tests/test_api_optimize.py
+git commit -m "feat: rate-limit robustOptimization requests more strictly (2/minute)"
+```
+
+---
+
 ## After all tasks: full suite verification
 
 Run the full backend suite once, as the final check before this plan's own final review:
