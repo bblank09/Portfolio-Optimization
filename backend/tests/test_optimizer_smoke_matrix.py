@@ -90,7 +90,7 @@ def _request(goal: str, risk_measure: str, optimization_frequency: str = "quarte
             "longOnly": True, "minWeightPct": 0, "maxWeightPct": 100,
             "groupConstraintsEnabled": False, "maxHoldings": 20,
             "lookbackPeriodMonths": 12, "optimizationFrequency": optimization_frequency,
-            "riskFreeRatePct": 1.5, "compareAgainst": "none",
+            "riskFreeRatePct": 1.5, "compareAgainst": "equal_weighted",
             "maxTurnoverPct": None, "maxTrackingErrorPct": None,
         },
     }
@@ -117,7 +117,8 @@ def synthetic_panel(monkeypatch):
 @pytest.mark.parametrize("goal", [g.value for g in ObjectiveGoal])
 @pytest.mark.parametrize("risk_measure", [m.value for m in RiskMeasure])
 def test_every_goal_and_risk_measure_combination_is_reachable(goal, risk_measure, synthetic_panel):
-    result = service.run_optimize(_request(goal, risk_measure))
+    request = _request(goal, risk_measure)
+    result = service.run_optimize(request)
 
     assert isinstance(result, OptimizeResult)
     assert set(result.optimal_weights) == set(PROJ_IDS)
@@ -135,6 +136,12 @@ def test_every_goal_and_risk_measure_combination_is_reachable(goal, risk_measure
     # why not (INSUFFICIENT_ROLLING_HISTORY is a separate, expected error
     # path exercised by test_rolling_evaluation.py directly, not here).
     _assert_rolling_is_not_degenerate(result)
+    # A non-none compareAgainst must produce real compareWeights for every
+    # goal/risk-measure combination -- not left blank the way an earlier
+    # sub-project's smoke matrix let a real bug hide behind a too-weak
+    # assertion (see the rolling-evaluator final review's finding).
+    if request.constraints.compare_against.value != "none":
+        assert result.compare_weights is not None
 
 
 @pytest.mark.parametrize("optimization_frequency", ["monthly", "quarterly", "annually"])

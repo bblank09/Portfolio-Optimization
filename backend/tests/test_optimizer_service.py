@@ -1,6 +1,6 @@
 import pytest
 
-from backend.app.domain.optimize_schemas import OptimizeRequest
+from backend.app.domain.optimize_schemas import CompareAgainst, OptimizeRequest
 from backend.app.optimizer.service import run_optimize
 
 
@@ -90,3 +90,21 @@ def test_too_short_a_window_still_returns_the_main_solve_without_rolling(two_rea
     assert result.rolling == []
     assert result.robust_note is not None
     assert "Rolling validation unavailable" in result.robust_note
+
+
+def test_run_optimize_populates_real_compare_weights(two_real_fund_request):
+    two_real_fund_request.constraints = two_real_fund_request.constraints.model_copy(
+        update={"compare_against": CompareAgainst.equal_weighted}
+    )
+    result = run_optimize(two_real_fund_request)
+    assert result.compare_weights is not None
+    assert sum(result.compare_weights.values()) == pytest.approx(100, abs=0.5)
+    assert result.compare_note is None
+    assert result.selected_risk_measure.compared_value is not None
+
+
+def test_run_optimize_populates_real_benchmark_comparison(two_real_fund_request):
+    two_real_fund_request.benchmark_proj_id = "M0209_2548"
+    result = run_optimize(two_real_fund_request)
+    assert result.benchmark_comparison is not None
+    assert result.benchmark_comparison.proj_id == "M0209_2548"

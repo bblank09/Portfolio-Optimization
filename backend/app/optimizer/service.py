@@ -25,6 +25,7 @@ from backend.app.domain.optimize_schemas import OptimizeRequest, OptimizeResult
 from backend.app.engine import metrics
 from backend.app.optimizer import (
     black_litterman,
+    comparison,
     diagnostics,
     frontier,
     inputs,
@@ -81,6 +82,13 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
             "at the selected frequency."
         )
 
+    compare_weights, compare_note = comparison.build_comparison_weights(request, mu, sigma, returns)
+    benchmark_comparison = comparison.build_benchmark_comparison(request, optimal_weights, returns)
+
+    compared_risk_value = None
+    if compare_weights is not None:
+        compared_risk_value, _ = solvers.realized_risk(request, compare_weights, sigma, returns, inputs.periods_per_year(request))
+
     frontier_points = frontier.build_frontier(request, mu, sigma, returns)
     optimal_marker, gmv_marker, tangency_marker = frontier.extract_markers(frontier_points, optimal_weights, mu, sigma)
 
@@ -130,7 +138,8 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         "feasibilityMessage": None,
         "robustNote": rolling_note,
         "optimalWeights": optimal_weights,
-        "compareWeights": None,
+        "compareWeights": compare_weights,
+        "compareNote": compare_note,
         # Real per-asset decomposition of the selected risk measure via
         # riskfolio-lib's own Risk_Contribution (was: a flat 100/n stand-in
         # that said nothing about the actual portfolio).
@@ -146,10 +155,10 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
             "measure": request.risk_measure.value,
             "label": risk_label,
             "optimizedValue": round(realized_risk_value, 2),
-            "comparedValue": None,
+            "comparedValue": round(compared_risk_value, 2) if compared_risk_value is not None else None,
             "unit": "pct",
         },
-        "benchmarkComparison": None,
+        "benchmarkComparison": benchmark_comparison,
         "tradeList": trade_list,
         "totalTurnoverPct": total_turnover,
         "bindingConstraints": findings,
