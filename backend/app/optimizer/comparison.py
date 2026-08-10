@@ -7,10 +7,15 @@ main solve, why a comparison failure never fails the whole request).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from backend.app.domain.optimize_schemas import ObjectiveGoal, OptimizeRequest
-from backend.app.optimizer import solvers
+from backend.app.engine import metrics
+from backend.app.optimizer import inputs, solvers
+
+_UNIVERSE_PATH = Path("data/sec/mvp_fund_universe.csv")
 
 
 def _clamp_and_renormalize(
@@ -105,3 +110,51 @@ def build_comparison_weights(
         return solvers.solve_for_goal(alt_request, mu, sigma, returns), None
     except (ValueError, RuntimeError) as exc:
         return None, f"Comparison against {compare_against} could not be computed: {exc}"
+
+
+def _resolve_display_name(proj_id: str, request: OptimizeRequest) -> str:
+    """The benchmark fund's display name, preferring request.funds (already
+    client-supplied, no I/O) and falling back to the same
+    mvp_fund_universe.csv backend/app/api/funds.py reads for the fund
+    picker -- a benchmark is not necessarily one of the optimized funds, so
+    request.funds alone cannot always resolve it."""
+    for fund in request.funds:
+        if fund.proj_id == proj_id:
+            return fund.display_name
+    if _UNIVERSE_PATH.exists():
+        universe = pd.read_csv(_UNIVERSE_PATH)
+        match = universe.loc[universe["proj_id"] == proj_id, "display_name"]
+        if not match.empty:
+            return str(match.iloc[0])
+    return proj_id
+
+
+def build_benchmark_comparison(
+    request: OptimizeRequest, optimal_weights: dict[str, float], returns: pd.DataFrame
+) -> dict | None:
+    """None when no benchmark was requested. Otherwise loads the
+    benchmark's own return series (inputs.load_benchmark_returns --
+    raises ValueError("BENCHMARK_DATA_UNAVAILABLE") on insufficient data,
+    a hard error for the whole request per this project's decision, so
+    that propagates uncaught here rather than being swallowed) and scores
+    it against the optimized portfolio's realized return series via
+    backend/app/engine/metrics.py's real functions."""
+    benchmark_proj_id = request.benchmark_proj_id
+    if not benchmark_proj_id:
+        return None
+
+    benchmark_returns = inputs.load_benchmark_returns(benchmark_proj_id, request)
+    portfolio_returns = inputs.portfolio_return_series(returns, optimal_weights)
+    ppy = inputs.periods_per_year(request)
+
+    excess_return_pct = (
+        metrics.annualized_return(portfolio_returns, ppy) - metrics.annualized_return(benchmark_returns, ppy)
+    ) * 100
+    tracking_error_pct = metrics.tracking_error(portfolio_returns, benchmark_returns, ppy) * 100
+
+    return {
+        "projId": benchmark_proj_id,
+        "displayName": _resolve_display_name(benchmark_proj_id, request),
+        "trackingErrorPct": round(tracking_error_pct, 2),
+        "excessReturnPct": round(excess_return_pct, 2),
+    }

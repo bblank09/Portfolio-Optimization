@@ -26,6 +26,12 @@ def _load_returns_for(proj_ids: list[str], request: OptimizeRequest, error_code:
     # to propagate so the API route can map it to NAV_CACHE_MISSING (503),
     # matching backend/app/api/backtests.py's handling of the same case.
     nav = align_nav_panel(load_nav_panel(proj_ids), frequency=request.data_frequency.value)
+    if any(proj_id not in nav.columns for proj_id in proj_ids):
+        # A proj_id entirely absent from the cache (e.g. an unrecognized
+        # benchmark) has no column to slice at all -- .loc below would
+        # raise a bare KeyError instead of this function's documented
+        # ValueError(error_code) contract.
+        raise ValueError(error_code)
     window = nav.loc[pd.Timestamp(request.time_period.start_date):pd.Timestamp(request.time_period.end_date), proj_ids]
     if window.empty or window.isna().to_numpy().any():
         raise ValueError(error_code)
