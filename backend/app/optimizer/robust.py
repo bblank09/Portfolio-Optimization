@@ -23,6 +23,12 @@ from backend.app.optimizer import inputs, solvers
 RESAMPLE_COUNT = 500
 MIN_SUCCESSFUL_FRACTION = 0.5
 
+# Fixed seed, deliberately NOT derived from request contents: this project's
+# reproducibility invariant ("every result is reproducible from the parquet
+# cache alone") requires that the same request produces byte-identical
+# weights on every call. A fresh default_rng() per call broke that.
+RESAMPLE_SEED = 20260810
+
 
 def resample_and_solve(
     request: OptimizeRequest, mu: pd.Series, sigma: pd.DataFrame, returns: pd.DataFrame
@@ -48,7 +54,7 @@ def resample_and_solve(
     """
     proj_ids = list(mu.index)
     n_obs = len(returns)
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(RESAMPLE_SEED)
 
     successful_weights: list[dict[str, float]] = []
     for _ in range(RESAMPLE_COUNT):
@@ -77,5 +83,13 @@ def resample_and_solve(
         for pid in proj_ids:
             averaged[pid] += weights.get(pid, 0.0)
     averaged = {pid: round(v / total_runs, 4) for pid, v in averaged.items()}
+    # Per-fund rounding can leave the total a hair off 100; put the residual
+    # back on the largest holding (rather than rescaling every fund, which
+    # would need a second rounding pass and could drift again) so the
+    # returned weights always sum to exactly 100.
+    rounded_total = sum(averaged.values())
+    if averaged and rounded_total > 0:
+        largest = max(averaged, key=lambda pid: averaged[pid])
+        averaged[largest] = round(averaged[largest] + (100.0 - rounded_total), 4)
     note = f"Robust optimization: averaged {total_runs} of {RESAMPLE_COUNT} resamples."
     return averaged, note

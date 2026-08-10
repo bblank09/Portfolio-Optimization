@@ -1,6 +1,7 @@
 from itertools import pairwise
 
 import pandas as pd
+import pytest
 
 from backend.app.optimizer.rolling import build_fold_schedule
 
@@ -94,3 +95,9 @@ def test_trailing_mode_train_start_is_clamped_to_available_history():
     folds = build_fold_schedule(index, "monthly", mode="trailing", lookback_months=2)
     assert folds[0].train_start >= index.min()
     assert folds[0].train_start <= index.min() + pd.Timedelta(days=31)  # first fold's train_end is end of Feb; a 2-month lookback from there lands close to index[0] itself
+
+
+def test_build_fold_schedule_rejects_trailing_mode_without_lookback_months():
+    index = pd.date_range("2020-01-31", periods=12, freq="ME")
+    with pytest.raises(ValueError, match="lookback_months is required when mode='trailing'"):
+        build_fold_schedule(index, "monthly", mode="trailing")

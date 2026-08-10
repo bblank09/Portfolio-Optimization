@@ -249,4 +249,15 @@ def test_robust_optimization_smoke_across_a_few_goals(goal, synthetic_panel):
     result = service.run_optimize(request)
 
     assert sum(result.optimal_weights.values()) == pytest.approx(100, abs=0.5)
+    # Assert on the note's CONTENT, not just `is not None`: a bare not-None
+    # check let a stale "averaged N of 500 resamples" claim survive the
+    # max-holdings trim path unnoticed (see test_optimizer_service.py's
+    # post-trim disclosure test). This request's cap does not bind, so the
+    # note must be the plain resampling statement with no trim disclosure.
     assert result.robust_optimization_note is not None
+    assert "resample" in result.robust_optimization_note.lower()
+    # The trim disclosure must be present exactly when trimming happened --
+    # this synthetic fixture's max_holdings cap does bind for some goals.
+    trimmed = result.constraint_note is not None
+    disclosed = "single-shot solve, not the resampled average" in result.robust_optimization_note
+    assert disclosed == trimmed

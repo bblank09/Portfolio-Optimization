@@ -87,6 +87,8 @@ def build_fold_schedule(
     behavior is identical in both modes; only each fold's training WINDOW
     start differs.
     """
+    if mode == "trailing" and lookback_months is None:
+        raise ValueError("lookback_months is required when mode='trailing'")
     if len(index) == 0:
         return []
     periods = pd.PeriodIndex(index, freq=_PERIOD_FREQ[frequency])
@@ -100,7 +102,7 @@ def build_fold_schedule(
         train_end = train_rows.max()
 
         train_start = None
-        if mode == "trailing":
+        if mode == "trailing" and lookback_months is not None:
             cutoff = train_end - pd.DateOffset(months=lookback_months)
             eligible = index[index >= cutoff]
             train_start = eligible.min() if len(eligible) > 0 else index.min()

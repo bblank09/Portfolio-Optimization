@@ -133,3 +133,27 @@ def test_resample_and_solve_averages_weights_on_a_synthetic_case(monkeypatch):
     weights, _note = resample_and_solve(request, mu, sigma, returns)
     assert weights["A"] == pytest.approx(50.0, abs=0.1)
     assert weights["B"] == pytest.approx(50.0, abs=0.1)
+
+
+def test_resample_and_solve_is_deterministic_across_calls(two_real_fund_request):
+    """Reproducibility invariant: the same request must produce byte-identical
+    resampled weights on every call (robust.py now seeds its RNG)."""
+    from backend.app.optimizer.inputs import build_mu_sigma, build_returns_panel
+
+    returns = build_returns_panel(two_real_fund_request)
+    mu, sigma = build_mu_sigma(two_real_fund_request, returns)
+
+    first_weights, first_note = resample_and_solve(two_real_fund_request, mu, sigma, returns)
+    second_weights, second_note = resample_and_solve(two_real_fund_request, mu, sigma, returns)
+
+    assert first_weights == second_weights
+    assert first_note == second_note
+
+
+def test_resample_and_solve_weights_sum_to_exactly_100(two_real_fund_request):
+    from backend.app.optimizer.inputs import build_mu_sigma, build_returns_panel
+
+    returns = build_returns_panel(two_real_fund_request)
+    mu, sigma = build_mu_sigma(two_real_fund_request, returns)
+    weights, _note = resample_and_solve(two_real_fund_request, mu, sigma, returns)
+    assert sum(weights.values()) == pytest.approx(100, abs=1e-9)
