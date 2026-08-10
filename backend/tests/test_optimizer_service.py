@@ -108,3 +108,9 @@ def test_run_optimize_populates_real_benchmark_comparison(two_real_fund_request)
     result = run_optimize(two_real_fund_request)
     assert result.benchmark_comparison is not None
     assert result.benchmark_comparison.proj_id == "M0209_2548"
+
+
+def test_run_optimize_propagates_benchmark_data_unavailable(two_real_fund_request):
+    two_real_fund_request.benchmark_proj_id = "NONEXISTENT_PROJ_ID"
+    with pytest.raises(ValueError, match="BENCHMARK_DATA_UNAVAILABLE"):
+        run_optimize(two_real_fund_request)
