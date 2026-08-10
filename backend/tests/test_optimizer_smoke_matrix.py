@@ -167,6 +167,11 @@ def test_every_goal_and_risk_measure_combination_is_reachable(
             abs(result.compare_weights[p] - result.optimal_weights[p]) for p in PROJ_IDS
         )
         assert max_delta > 0.01, "comparison portfolio is identical to the optimized portfolio"
+    # Every combination must respect optimal_weights never exceeding
+    # max_holdings, whether or not trimming was actually needed for this
+    # specific fixture/cap combination.
+    held_count = sum(1 for w in result.optimal_weights.values() if w > 0.5)
+    assert held_count <= request.constraints.max_holdings
 
 
 @pytest.mark.parametrize("optimization_frequency", ["monthly", "quarterly", "annually"])

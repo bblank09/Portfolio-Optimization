@@ -1,6 +1,10 @@
 import pytest
 
-from backend.app.domain.optimize_schemas import CompareAgainst, OptimizeRequest
+from backend.app.domain.optimize_schemas import (
+    CompareAgainst,
+    ObjectiveGoal,
+    OptimizeRequest,
+)
 from backend.app.optimizer.service import run_optimize
 
 
@@ -114,3 +118,34 @@ def test_run_optimize_propagates_benchmark_data_unavailable(two_real_fund_reques
     two_real_fund_request.benchmark_proj_id = "NONEXISTENT_PROJ_ID"
     with pytest.raises(ValueError, match="BENCHMARK_DATA_UNAVAILABLE"):
         run_optimize(two_real_fund_request)
+
+
+def test_run_optimize_enforces_max_holdings(two_real_fund_request):
+    # The fixture's 2-fund universe already satisfies any cap >= 2, so this
+    # confirms the no-op path returns cleanly with constraint_note None.
+    result = run_optimize(two_real_fund_request)
+    assert result.constraint_note is None
+
+    # A cap of 1 on a 2-fund universe MUST trigger real trimming.
+    #
+    # Deviation from the brief's sample test: the brief's version only
+    # overrode `max_holdings` and kept the fixture's default goal
+    # (max_sharpe). Verified against the real committed NAV cache for this
+    # exact fund pair/window, max_sharpe on 2 highly-correlated funds
+    # (corr ~0.94) already concentrates ~100% into the higher-Sharpe fund on
+    # its own, before any cap is applied -- so a max_holdings=1 cap would be
+    # a no-op there and never exercise the trimming path at all. Switching
+    # the goal to risk_parity (also verified against the real cache) yields
+    # an unconstrained solve that holds both funds meaningfully, so the
+    # max_holdings=1 cap genuinely forces holdings.enforce_max_holdings to
+    # trim -- this is the scenario the brief's assertions describe.
+    tight = two_real_fund_request.model_copy(
+        update={
+            "goal": ObjectiveGoal.risk_parity,
+            "constraints": two_real_fund_request.constraints.model_copy(update={"max_holdings": 1}),
+        }
+    )
+    result = run_optimize(tight)
+    held = [pid for pid, w in result.optimal_weights.items() if w > 0.5]
+    assert len(held) == 1
+    assert result.constraint_note is not None
