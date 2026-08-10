@@ -3,7 +3,6 @@ from pydantic import ValidationError
 
 from backend.app.domain.optimize_schemas import OptimizeRequest, OptimizeResult
 
-
 MINIMAL_REQUEST_JSON = {
     "funds": [
         {"projId": "M0209_2548", "displayName": "K-SET50"},
@@ -142,3 +141,15 @@ def test_optimize_result_accepts_constraint_note():
     payload["constraintNote"] = None
     result = OptimizeResult.model_validate(payload)
     assert result.constraint_note is None
+
+
+def test_rolling_window_mode_defaults_to_expanding():
+    payload = MINIMAL_REQUEST_JSON
+    request = OptimizeRequest.model_validate(payload)
+    assert request.constraints.rolling_window_mode.value == "expanding"
+
+
+def test_rolling_window_mode_accepts_trailing():
+    payload = {**MINIMAL_REQUEST_JSON, "constraints": {**MINIMAL_REQUEST_JSON["constraints"], "rollingWindowMode": "trailing"}}
+    request = OptimizeRequest.model_validate(payload)
+    assert request.constraints.rolling_window_mode.value == "trailing"

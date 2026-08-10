@@ -62,6 +62,11 @@ class OptimizationFrequency(StrEnum):
     annually = "annually"
 
 
+class RollingWindowMode(StrEnum):
+    expanding = "expanding"
+    trailing = "trailing"
+
+
 class ViewType(StrEnum):
     absolute = "absolute"
     relative = "relative"
@@ -112,6 +117,7 @@ class OptimizeConstraints(CamelModel):
     max_holdings: int = Field(ge=1)
     lookback_period_months: int
     optimization_frequency: OptimizationFrequency
+    rolling_window_mode: RollingWindowMode = RollingWindowMode.expanding
     risk_free_rate_pct: float
     compare_against: CompareAgainst
     max_turnover_pct: float | None = Field(default=None, ge=0)
