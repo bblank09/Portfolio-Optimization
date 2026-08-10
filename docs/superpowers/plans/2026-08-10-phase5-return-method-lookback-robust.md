@@ -1115,9 +1115,11 @@ def _check_robust_optimization_rate_limit(client_key: str) -> None:
 Then, inside `create_optimization`, immediately after the existing `proj_ids = [...]` line (before the `try:` block that calls `run_optimize`), add:
 
 ```python
-    if optimize_request.constraints.robust_optimization:
+    if optimize_request.robust_optimization:
         _check_robust_optimization_rate_limit(get_remote_address(request))
 ```
+
+Note: `robust_optimization` is a TOP-LEVEL field on `OptimizeRequest`, NOT nested under `constraints` — `request.constraints.robust_optimization` does not exist and would raise `AttributeError`. This was confirmed directly against the real schema (`backend/app/domain/optimize_schemas.py`) during Task 6's implementation; use `optimize_request.robust_optimization` as shown above, not the constraints-nested form.
 
 Check the exact current line order in the file before inserting — this must run BEFORE `run_optimize` is called, so a client that will be rejected never pays for a partial solve.
 
