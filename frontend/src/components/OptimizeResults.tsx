@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { SecFund } from "../types/backtest";
 import type { OptimizeRequest, OptimizeResult } from "../types/optimize";
+import { OBJECTIVES } from "./OptimizeAssumptionsStep";
 
 interface Props {
   result: OptimizeResult | null;
@@ -65,14 +66,12 @@ export function OptimizeResults({ result, funds, compareLabel, request }: Props)
       <div className="resultHeader">
         <div>
           <span className="sourceLine">Optimization result</span>
-          <h2>{funds.length} funds</h2>
+          <h2>{request ? OBJECTIVES.find((o) => o.id === request.goal)?.title ?? "Optimization" : "Optimization"} &middot; {funds.length} funds</h2>
         </div>
         <button className="secondaryButton" onClick={() => downloadText("optimization-result.json", JSON.stringify(result, null, 2), "application/json")} type="button">
           <Download size={16} /> Result JSON
         </button>
       </div>
-
-      <NotesPanel result={result} />
 
       <nav aria-label="Optimization output tabs" className="resultTabs">
         {TABS.map((tab) => (
@@ -252,20 +251,6 @@ function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
 // portfolio sits within what's achievable at all from this shortlist,
 // before the user reads a single tab. Uses data already computed
 // (result.frontier), no new math.
-function NotesPanel({ result }: { result: OptimizeResult }) {
-  if (!result.frontier.length) return null;
-  const rets = result.frontier.map((p) => p.expectedReturnPct);
-  const minRet = Math.min(...rets);
-  const maxRet = Math.max(...rets);
-  return (
-    <div className="notePanel">
-      <p>
-        The possible range of expected annual returns for this shortlist is <b>{pct.format(minRet)}%</b> to <b>{pct.format(maxRet)}%</b>, depending on how much risk is taken -- see the Frontier tab.
-      </p>
-    </div>
-  );
-}
-
 // Shared renderer for the backend's four optional caveat strings
 // (robustNote, robustOptimizationNote, constraintNote, compareNote). Each
 // is null whenever there's nothing to say, and rendering an empty badged
@@ -278,6 +263,35 @@ function CaveatNote({ badge, note }: { badge: string; note: string | null }) {
     <div className="notePanel">
       <span className="badge">{badge}</span>
       <p>{note}</p>
+    </div>
+  );
+}
+
+// robustNote's message is always exactly "Rolling validation: X of Y
+// scheduled folds produced a result (...)." (backend/app/optimizer/rolling.py)
+// -- as a wall of prose, the one number that actually matters (how much of
+// the schedule is trustworthy) was easy to miss. Pull it out into a
+// headline fraction + coverage bar, same track/fill styling as
+// RiskContributionBars, and keep the full sentence underneath so nothing
+// is lost -- just easier to scan.
+function RollingValidationNote({ note }: { note: string | null }) {
+  if (!note || !note.trim()) return null;
+  const match = note.match(/(\d+) of (\d+) scheduled folds/);
+  if (!match) return <CaveatNote badge="Rolling Validation" note={note} />;
+  const scored = Number(match[1]);
+  const scheduled = Number(match[2]);
+  const coveragePct = scheduled > 0 ? (scored / scheduled) * 100 : 0;
+  return (
+    <div className="notePanel">
+      <span className="badge">Rolling Validation</span>
+      <div style={{ alignItems: "baseline", display: "flex", gap: 10, margin: "6px 0 8px" }}>
+        <strong style={{ fontSize: 20 }}>{scored} / {scheduled} folds scored</strong>
+        <span style={{ color: "var(--text-tertiary)", fontSize: 13 }}>({pct.format(coveragePct)}%)</span>
+      </div>
+      <div style={{ background: "var(--surface-2)", borderRadius: 4, height: 8, marginBottom: 10, width: "100%" }}>
+        <div style={{ background: PALETTE[0], borderRadius: 4, height: "100%", width: `${coveragePct}%` }} />
+      </div>
+      <p className="field-hint">{note}</p>
     </div>
   );
 }
@@ -322,28 +336,10 @@ function SummaryTab({ result, nameOf, compareLabel, setActiveTab, request }: { r
   const compared = result.performanceSummary[1];
   return (
     <div className="tabStack">
-      <section className="chartPanel">
-        <h3>Run summary</h3>
-        <p className="summaryText">
-          The optimizer put the most weight in <b>{topFund ? nameOf(topFund[0]) : "-"}</b> ({pct.format(topFund?.[1] ?? 0)}%) across {topWeights.length} funds,
-          for an expected return of <b>{pct.format(optimized?.expectedReturnPct ?? 0)}%</b> at <b>{pct.format(optimized?.stdDevPct ?? 0)}%</b> volatility
-          (Sharpe {optimized?.sharpeExAnte ?? 0}).
-          {compareLabel && compared ? (
-            <> Compared against <b>{compareLabel}</b> ({pct.format(compared.expectedReturnPct)}% return, {pct.format(compared.stdDevPct)}% volatility), the optimized mix {optimized && compared && optimized.sharpeExAnte >= compared.sharpeExAnte ? "has a better" : "has a lower"} risk-adjusted return.</>
-          ) : null}
-          {" "}Selected risk measure (<b>{result.selectedRiskMeasure.label}</b>): <b>{pct.format(result.selectedRiskMeasure.optimizedValue)}%</b>.
-          {result.tradeList.length ? (
-            <> Getting there from your current portfolio needs <b>{pct.format(result.totalTurnoverPct)}%</b> one-way turnover -- see the Weights tab for the full trade list.</>
-          ) : null}
-          {result.benchmarkComparison ? (
-            <> Against the <b>{result.benchmarkComparison.displayName}</b> benchmark, the optimized mix has {result.benchmarkComparison.excessReturnPct >= 0 ? "an excess return of" : "a shortfall of"} <b>{pct.format(Math.abs(result.benchmarkComparison.excessReturnPct))}%</b> with <b>{pct.format(result.benchmarkComparison.trackingErrorPct)}%</b> tracking error.</>
-          ) : null}
-        </p>
-      </section>
-      {/* robustNote carries rolling out-of-sample validation caveats (folds
-          dropped for insufficient training history), NOT anything about the
-          robustOptimization toggle -- robustOptimizationNote is that one. */}
-      <CaveatNote badge="Rolling Validation" note={result.robustNote} />
+      {/* robustOptimizationNote is a separate concept from robustNote (the
+          rolling out-of-sample validation caveat rendered below, next to
+          Risk contribution) -- robustOptimizationNote is about the
+          robustOptimization toggle specifically. */}
       <CaveatNote badge="Robust Optimization" note={result.robustOptimizationNote} />
       <div className="metricGrid">
         <ClickableMetric label="Expected return" onClick={() => setActiveTab("Performance")} sub="See Performance tab" value={`${pct.format(optimized?.expectedReturnPct ?? 0)}%`} />
@@ -357,6 +353,7 @@ function SummaryTab({ result, nameOf, compareLabel, setActiveTab, request }: { r
           <ClickableMetric label="vs. Benchmark" onClick={() => setActiveTab("Performance")} sub="See Performance tab" value={`${result.benchmarkComparison.excessReturnPct >= 0 ? "+" : ""}${pct.format(result.benchmarkComparison.excessReturnPct)}%`} />
         ) : null}
       </div>
+      <RollingValidationNote note={result.robustNote} />
       <section className="chartPanel">
         <h3>Risk contribution</h3>
         <RiskContributionBars nameOf={nameOf} riskContributionPct={result.riskContributionPct} />
@@ -459,7 +456,11 @@ function ResultChecklist({ result, compareLabel, request }: { result: OptimizeRe
             {items.map((item) => (
               <tr key={item.label}>
                 <td>{item.label}</td>
-                <td><span className={item.status === "ok" ? "pill ok" : "pill warn"}>{item.status === "ok" ? "OK" : "Check"}</span></td>
+                {/* "OK" on every row regardless of what it's actually saying
+                    told the user nothing -- only render a pill for the
+                    genuinely conditional "Check" case, where it actually
+                    flags something worth looking at. */}
+                <td>{item.status === "warn" ? <span className="pill warn">Check</span> : null}</td>
                 <td>{item.detail}</td>
               </tr>
             ))}

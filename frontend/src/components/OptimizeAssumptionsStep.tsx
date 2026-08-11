@@ -40,7 +40,7 @@ interface Props {
 // title/blurb spell out "at a target return" -- mathematically, argmin(sigma)
 // and argmin(sigma^2) are the same portfolio, so without a target return
 // this card would be indistinguishable from Minimize Variance (GMV).
-const OBJECTIVES: Array<{ id: ObjectiveGoal; title: string; blurb: string }> = [
+export const OBJECTIVES: Array<{ id: ObjectiveGoal; title: string; blurb: string }> = [
   { id: "max_sharpe", title: "Maximize Sharpe Ratio", blurb: "Best risk-adjusted return across the shortlist." },
   { id: "min_volatility", title: "Minimize Volatility at a Target Return", blurb: "Lowest risk among mixes that hit the return you set." },
   { id: "max_return_target_vol", title: "Max Return, Target Volatility", blurb: "Highest return subject to a volatility ceiling you set." },
