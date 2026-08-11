@@ -183,7 +183,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
     <div className={active ? "page active" : "page"}>
       <div className="page-head">
         <h1>Set the optimization objective</h1>
-        <p>Choose what "optimal" means for this shortlist, then set constraints. Every field here maps to a documented method in <code>docs/optimization-assumptions.md</code>.</p>
+        <p>Choose what "optimal" means for this shortlist, then set constraints.</p>
       </div>
 
       {/* 1. Data and time period */}
