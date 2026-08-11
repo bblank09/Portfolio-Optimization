@@ -54,25 +54,6 @@ function requestSeed(request: OptimizeRequest): string {
   ].join("|");
 }
 
-// Lets the Assumptions step show Black-Litterman's equilibrium returns
-// (Pi) BEFORE the user sets any views -- BL views are meaningless without
-// first seeing what the model already implies ("I think fund X will beat
-// what the market/equilibrium implies"), so the UI needs this preview
-// ahead of a full run, not only inside the eventual Results tab.
-export function estimateEquilibriumReturns(request: OptimizeRequest): Record<string, number> {
-  const rand = seededRandom(requestSeed(request));
-  const result: Record<string, number> = {};
-  for (const fund of request.funds) {
-    const equityish = /ตราสารทุน|ผสม/.test(fund.policy_desc);
-    const baseReturn = equityish ? 8 + rand() * 6 : 2 + rand() * 3;
-    const expectedReturnPct = !request.useHistoricalReturns && request.expectedReturnOverrides[fund.proj_id] !== undefined
-      ? request.expectedReturnOverrides[fund.proj_id]
-      : baseReturn;
-    result[fund.proj_id] = Number((expectedReturnPct * 0.8).toFixed(2));
-  }
-  return result;
-}
-
 export function runMockOptimize(request: OptimizeRequest): OptimizeResult {
   const feasibility = evaluateFeasibility(request);
   if (feasibility.status !== "ok") {
