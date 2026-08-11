@@ -1,6 +1,6 @@
 import { AlertTriangle, BarChart3, Download } from "lucide-react";
 import { useState } from "react";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import type { SecFund } from "../types/backtest";
 import type { OptimizeRequest, OptimizeResult } from "../types/optimize";
 import { OBJECTIVES } from "./OptimizeAssumptionsStep";
@@ -133,6 +133,87 @@ function XAxisTicks({ labels, padding, width, y }: { labels: string[]; padding: 
   );
 }
 
+// Evenly-spaced index labels for a period-indexed x-axis -- charts
+// previously only ever showed the FIRST and LAST period ("1" / "53"),
+// which meant every point in between was unreadable without hovering.
+// count is a target, not a guarantee: never returns more labels than
+// there are points, and always includes both endpoints.
+function evenIndexLabels(n: number, count = 5): string[] {
+  if (n <= 1) return ["1"];
+  const target = Math.min(count, n);
+  const labels: string[] = [];
+  for (let i = 0; i < target; i++) {
+    const idx = Math.round((i / (target - 1)) * (n - 1));
+    labels.push(String(idx + 1));
+  }
+  return [...new Set(labels)];
+}
+
+// Hover-to-inspect layer shared by every index-based line/area/bar chart
+// in this file (equity curves, drawdown, transition map, rolling Sharpe,
+// the frontier curve, the return histogram). A static line chart with no
+// numeric readout per point was the "ดูยาก" (hard to read) complaint --
+// this adds a crosshair + floating tooltip without each chart needing its
+// own mouse-tracking code. `xAt` maps a data index to its already-computed
+// screen x; `renderTooltip` returns the title/lines to show for that index.
+function ChartHoverLayer({ n, width, height, padding, xAt, renderTooltip }: {
+  n: number;
+  width: number;
+  height: number;
+  padding: number;
+  xAt: (i: number) => number;
+  renderTooltip: (i: number) => { title: string; lines: string[] };
+}) {
+  const [index, setIndex] = useState<number | null>(null);
+  if (n < 1) return null;
+
+  function handleMove(e: MouseEvent<SVGRectElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = ((e.clientX - rect.left) / rect.width) * width;
+    let nearest = 0;
+    let best = Infinity;
+    for (let i = 0; i < n; i++) {
+      const d = Math.abs(xAt(i) - relX);
+      if (d < best) { best = d; nearest = i; }
+    }
+    setIndex(nearest);
+  }
+
+  const tooltip = index !== null ? renderTooltip(index) : null;
+  const tooltipWidth = 152;
+  const lineHeight = 14;
+  const tx = index !== null ? xAt(index) : 0;
+  const boxHeight = tooltip ? 18 + tooltip.lines.length * lineHeight : 0;
+  const boxX = Math.min(Math.max(tx - tooltipWidth / 2, 2), width - tooltipWidth - 2);
+  const boxY = Math.min(padding, height - boxHeight - 2);
+
+  return (
+    <>
+      <rect
+        fill="transparent"
+        height={Math.max(height - padding, 0)}
+        onMouseLeave={() => setIndex(null)}
+        onMouseMove={handleMove}
+        width={Math.max(width - padding * 2, 0)}
+        x={padding}
+        y={0}
+      />
+      {index !== null && tooltip ? (
+        <g pointerEvents="none">
+          <line stroke="var(--text-tertiary)" strokeDasharray="3,3" x1={tx} x2={tx} y1={padding} y2={height - padding} />
+          <g transform={`translate(${boxX}, ${boxY})`}>
+            <rect fill="var(--surface)" height={boxHeight} rx={5} stroke="var(--border-strong)" width={tooltipWidth} />
+            <text fill="var(--text-primary)" fontSize={11} fontWeight={700} x={9} y={15}>{tooltip.title}</text>
+            {tooltip.lines.map((line, i) => (
+              <text fill="var(--text-secondary)" fontSize={10.5} key={i} x={9} y={15 + (i + 1) * lineHeight}>{line}</text>
+            ))}
+          </g>
+        </g>
+      ) : null}
+    </>
+  );
+}
+
 function downloadText(filename: string, content: string, type: string) {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -172,7 +253,7 @@ function EquityCurveChart({ title, series }: { title: string; series: { label: s
           <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
           <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
           <YAxisTicks format={(v) => v.toFixed(0)} height={height} max={maxV} min={minV} padding={padding} width={width} y={y} />
-          <XAxisTicks labels={n > 1 ? ["1", String(n)] : ["1"]} padding={padding} width={width} y={height - padding + 14} />
+          <XAxisTicks labels={evenIndexLabels(n)} padding={padding} width={width} y={height - padding + 14} />
           {paths.map((p) => (
             <path
               d={p.points.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(v)}`).join(" ")}
@@ -184,6 +265,17 @@ function EquityCurveChart({ title, series }: { title: string; series: { label: s
           ))}
           <text className="axisText" x={width / 2} y={height - 6}>Period</text>
           <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Growth of 100</text>
+          <ChartHoverLayer
+            height={height}
+            n={n}
+            padding={padding}
+            renderTooltip={(i) => ({
+              title: `Period ${i + 1}`,
+              lines: paths.map((p) => `${p.label}: ${p.points[i].toFixed(2)}`)
+            })}
+            width={width}
+            xAt={x}
+          />
         </svg>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
@@ -223,7 +315,12 @@ function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
   const y = (dd: number) => (minDd === 0 ? yZero : yZero + (dd / minDd) * (yBottom - yZero));
   const areaPath = `M ${x(0)} ${yZero} ${drawdowns.map((dd, i) => `L ${x(i)} ${y(dd)}`).join(" ")} L ${x(n - 1)} ${yZero} Z`;
   const linePath = drawdowns.map((dd, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(dd)}`).join(" ");
-  const maxDrawdown = minDd;
+  // Highlight the single worst underwater stretch as a shaded band across
+  // the full chart height -- the general area fill below the line already
+  // shades every drawdown, but the worst one is easy to lose among the
+  // others without something calling it out specifically.
+  const worstPeriod = computeDrawdownPeriods(returnsPct)[0] as DrawdownPeriod | undefined;
+  const worstBandEnd = worstPeriod ? worstPeriod.recoveryIndex ?? n - 1 : 0;
 
   return (
     <section className="chartPanel">
@@ -233,14 +330,24 @@ function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
           <line className="gridLine" x1={padding} x2={width - padding} y1={yZero} y2={yZero} />
           <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={yBottom} />
           <YAxisTicks format={(v) => `${v.toFixed(0)}%`} height={height} max={0} min={minDd} padding={padding} width={width} y={y} />
-          <XAxisTicks labels={n > 1 ? ["1", String(n)] : ["1"]} padding={padding} width={width} y={yBottom + 14} />
+          <XAxisTicks labels={evenIndexLabels(n)} padding={padding} width={width} y={yBottom + 14} />
+          {worstPeriod ? (
+            <rect fill="var(--danger)" fillOpacity={0.08} height={yBottom - padding} width={Math.max(x(worstBandEnd) - x(worstPeriod.startIndex), 2)} x={x(worstPeriod.startIndex)} y={padding} />
+          ) : null}
           <path d={areaPath} fill="var(--danger)" fillOpacity={0.18} stroke="none" />
           <path d={linePath} fill="none" stroke="var(--danger)" strokeWidth={2} />
           <text className="axisText" x={width / 2} y={height - 6}>Period</text>
           <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Drawdown (%)</text>
+          <ChartHoverLayer
+            height={yBottom}
+            n={n}
+            padding={padding}
+            renderTooltip={(i) => ({ title: `Period ${i + 1}`, lines: [`Drawdown: ${pct.format(drawdowns[i])}%`] })}
+            width={width}
+            xAt={x}
+          />
         </svg>
       </div>
-      <p className="field-hint">Max drawdown over this series: {pct.format(maxDrawdown)}%.</p>
     </section>
   );
 }
@@ -282,8 +389,8 @@ function RollingValidationNote({ note }: { note: string | null }) {
   const scheduled = Number(match[2]);
   const coveragePct = scheduled > 0 ? (scored / scheduled) * 100 : 0;
   return (
-    <div className="notePanel">
-      <span className="badge">Rolling Validation</span>
+    <section className="chartPanel">
+      <h3>Rolling Validation</h3>
       <div style={{ alignItems: "baseline", display: "flex", gap: 10, margin: "6px 0 8px" }}>
         <strong style={{ fontSize: 20 }}>{scored} / {scheduled} folds scored</strong>
         <span style={{ color: "var(--text-tertiary)", fontSize: 13 }}>({pct.format(coveragePct)}%)</span>
@@ -292,7 +399,7 @@ function RollingValidationNote({ note }: { note: string | null }) {
         <div style={{ background: PALETTE[0], borderRadius: 4, height: "100%", width: `${coveragePct}%` }} />
       </div>
       <p className="field-hint">{note}</p>
-    </div>
+    </section>
   );
 }
 
@@ -542,7 +649,7 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
             <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
             <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
             <YAxisTicks format={(v) => `${v.toFixed(1)}%`} height={height} max={maxRet} min={minRet} padding={padding} width={width} y={y} />
-            <XAxisTicks labels={[`${minVol.toFixed(1)}%`, `${maxVol.toFixed(1)}%`]} padding={padding} width={width} y={height - padding + 14} />
+            <XAxisTicks labels={niceTicks(minVol, maxVol).map((v) => `${v.toFixed(1)}%`)} padding={padding} width={width} y={height - padding + 14} />
             <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} />
             {assetPoints.map((a, index) => (
               <g key={a.id}>
@@ -555,6 +662,17 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
             ))}
             <text className="axisText" x={width / 2} y={height - 6}>Volatility (%)</text>
             <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Expected return (%)</text>
+            <ChartHoverLayer
+              height={height}
+              n={result.frontier.length}
+              padding={padding}
+              renderTooltip={(i) => {
+                const p = result.frontier[i];
+                return { title: `Point ${i + 1}`, lines: [`Vol: ${pct.format(p.volatilityPct)}%`, `Return: ${pct.format(p.expectedReturnPct)}%`, `Sharpe: ${p.sharpe}`] };
+              }}
+              width={width}
+              xAt={(i) => x(result.frontier[i].volatilityPct)}
+            />
           </svg>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
@@ -687,11 +805,24 @@ function TransitionMap({ result, nameOf }: { result: OptimizeResult; nameOf: (id
         <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
           <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
           <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
+          <YAxisTicks format={(v) => `${v.toFixed(0)}%`} height={height} max={100} min={0} padding={padding} width={width} y={(v) => height - padding - (v / 100) * (height - padding * 2)} />
+          <XAxisTicks labels={evenIndexLabels(n)} padding={padding} width={width} y={height - padding + 14} />
           {ids.map((id, index) => (
             <path d={bandPath(index)} fill={PALETTE[index % PALETTE.length]} fillOpacity={0.85} key={id} stroke="var(--bg)" strokeWidth={0.5} />
           ))}
           <text className="axisText" x={width / 2} y={height - 8}>Frontier point (low to high risk)</text>
           <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Allocation (%)</text>
+          <ChartHoverLayer
+            height={height}
+            n={n}
+            padding={padding}
+            renderTooltip={(i) => ({
+              title: `Point ${i + 1}`,
+              lines: ids.map((id, index) => `${nameOf(id)}: ${pct.format(stacks[i][index].to - stacks[i][index].from)}%`)
+            })}
+            width={width}
+            xAt={(i) => padding + stepX * i}
+          />
         </svg>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
@@ -930,7 +1061,7 @@ function ReturnHistogram({ monthlyReturnsPct }: { monthlyReturnsPct: number[] })
         <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
           <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
           <YAxisTicks format={(v) => v.toFixed(0)} height={height} max={maxCount} min={0} padding={padding} width={width} y={(v) => height - padding - (v / maxCount) * (height - padding * 2)} />
-          <XAxisTicks labels={[`${min.toFixed(1)}%`, `${max.toFixed(1)}%`]} padding={padding} width={width} y={height - padding + 14} />
+          <XAxisTicks labels={niceTicks(min, max).map((v) => `${v.toFixed(1)}%`)} padding={padding} width={width} y={height - padding + 14} />
           {bins.map((count, index) => {
             const barHeight = (count / maxCount) * (height - padding * 2);
             const x = padding + index * barWidth;
@@ -949,9 +1080,20 @@ function ReturnHistogram({ monthlyReturnsPct }: { monthlyReturnsPct: number[] })
             );
           })}
           <text className="axisText" x={width / 2} y={height - 6}>Monthly return (%)</text>
+          <ChartHoverLayer
+            height={height}
+            n={binCount}
+            padding={padding}
+            renderTooltip={(i) => {
+              const binStart = min + i * binSize;
+              const binEnd = binStart + binSize;
+              return { title: `${pct.format(binStart)}% to ${pct.format(binEnd)}%`, lines: [`${bins[i]} period${bins[i] === 1 ? "" : "s"}`] };
+            }}
+            width={width}
+            xAt={(i) => padding + i * barWidth + barWidth / 2}
+          />
         </svg>
       </div>
-      <p className="field-hint">{monthlyReturnsPct.length}-month realized return series for the optimized weights over the selected time period.</p>
     </section>
   );
 }
@@ -982,7 +1124,6 @@ function TrailingReturnsPanel({ monthlyReturnsPct }: { monthlyReturnsPct: number
           </tbody>
         </table>
       </div>
-      <p className="field-hint">Compounded return over the trailing N periods of the {monthlyReturnsPct.length}-period realized series -- numbered by position, since the series arrives without per-period dates.</p>
     </section>
   );
 }
@@ -1057,7 +1198,6 @@ function DrawdownPeriodsPanel({ monthlyReturnsPct }: { monthlyReturnsPct: number
           </tbody>
         </table>
       </div>
-      <p className="field-hint">Worst {periods.length} underwater periods in the realized return series (numbered by position, not calendar dates).</p>
     </section>
   );
 }
@@ -1135,19 +1275,31 @@ function RollingSharpeChart({ rolling }: { rolling: OptimizeResult["rolling"] })
   const x = (i: number) => padding + (i / Math.max(n - 1, 1)) * (width - padding * 2);
   const y = (v: number) => height - padding - ((v - minV) / (maxV - minV || 1)) * (height - padding * 2);
   const path = values.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(v)}`).join(" ");
+  const tickCount = Math.min(5, n);
+  const tickLabels = Array.from(new Set(Array.from({ length: tickCount }, (_, i) => {
+    const idx = tickCount > 1 ? Math.round((i / (tickCount - 1)) * (n - 1)) : 0;
+    return rolling[idx].periodLabel;
+  })));
   return (
     <section className="chartPanel">
       <h3>Rolling Sharpe across folds</h3>
-      <p className="field-hint">A single end-of-run Sharpe can look good purely by luck of the sample; this tracks how the realized, out-of-sample Sharpe held up fold to fold.</p>
       <div className="chartCanvas">
         <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
           <line className="gridLine" x1={padding} x2={width - padding} y1={y(0)} y2={y(0)} />
           <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
           <YAxisTicks format={(v) => v.toFixed(2)} height={height} max={maxV} min={minV} padding={padding} width={width} y={y} />
-          <XAxisTicks labels={n > 1 ? [rolling[0].periodLabel, rolling[n - 1].periodLabel] : [rolling[0].periodLabel]} padding={padding} width={width} y={height - padding + 14} />
+          <XAxisTicks labels={tickLabels} padding={padding} width={width} y={height - padding + 14} />
           <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} />
           <text className="axisText" x={width / 2} y={height - 6}>Fold</text>
           <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Realized Sharpe</text>
+          <ChartHoverLayer
+            height={height}
+            n={n}
+            padding={padding}
+            renderTooltip={(i) => ({ title: rolling[i].periodLabel, lines: [`Sharpe: ${values[i].toFixed(2)}`] })}
+            width={width}
+            xAt={x}
+          />
         </svg>
       </div>
     </section>
@@ -1178,7 +1330,6 @@ function RollingTab({ result }: { result: OptimizeResult }) {
       <RollingSharpeChart rolling={result.rolling} />
       <section className="tablePanel">
         <h3>Rolling out-of-sample folds</h3>
-        <p className="field-hint">Each fold re-optimizes on the lookback window, then scores realized performance on the next period.</p>
         <div className="tableScroller">
           <table>
             <thead><tr><th>Period</th><th>Realized return</th><th>Realized volatility</th><th>Realized Sharpe</th></tr></thead>
