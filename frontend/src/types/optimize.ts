@@ -71,6 +71,12 @@ export interface OptimizeConstraints {
   // -- caps how far the optimized weights can drift from the benchmark's
   // own risk, distinct from targeting the benchmark's return. null = unconstrained.
   maxTrackingErrorPct: number | null;
+  // "expanding" (default): each rolling-validation fold's training window
+  // always starts at the earliest available observation and grows.
+  // "trailing": each fold's training window is a fixed-length window of
+  // lookbackPeriodMonths immediately preceding that fold's test period,
+  // sliding forward each fold. Backend: rolling.build_fold_schedule.
+  rollingWindowMode: "expanding" | "trailing";
 }
 
 export interface FundBound {
@@ -227,7 +233,20 @@ export interface SelectedRiskMeasureResult {
 export interface OptimizeResult {
   feasibility: FeasibilityStatus;
   feasibilityMessage: string | null;
-  robustNote: string | null; // set when request.robustOptimization is true
+  // Rolling out-of-sample validation caveats (e.g. folds dropped for
+  // insufficient training history) -- NOT related to robustOptimization
+  // (see robustOptimizationNote below for that).
+  robustNote: string | null;
+  // Set when constraints.compareAgainst produced a comparison portfolio --
+  // caveats about how that comparison was computed.
+  compareNote: string | null;
+  // Set when a portfolio constraint (e.g. maxHoldings) could only be
+  // approximately honored -- explains what was trimmed and why.
+  constraintNote: string | null;
+  // Set when request.robustOptimization is true -- states how many Monte
+  // Carlo resamples succeeded, or explains a fallback to the single-shot
+  // solve when fewer than half succeeded.
+  robustOptimizationNote: string | null;
   optimalWeights: Record<string, number>; // proj_id -> weight pct
   compareWeights: Record<string, number> | null; // proj_id -> weight pct, per constraints.compareAgainst
   riskContributionPct: Record<string, number>; // proj_id -> % of total portfolio risk
