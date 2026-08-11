@@ -1,5 +1,5 @@
 import { AlertTriangle, BarChart3, Download } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import type { SecFund } from "../types/backtest";
 import type { OptimizeRequest, OptimizeResult } from "../types/optimize";
@@ -25,6 +25,10 @@ const fmtNum = (value: number | null | undefined) => (value === null || value ==
 // Same palette PortfolioStep's AllocationDonut uses, so a fund reads as
 // the same color across the Portfolio step and these Results charts.
 const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
+// Monochrome purple ramp, darkest to lightest, for the transition map's
+// stacked bands -- distinct funds still need distinct shades, just all
+// within the same hue instead of the general multi-color PALETTE.
+const PURPLE_SHADES = ["#4c1bb3", "#5b21d6", "#7c4ded", "#a480ee", "#c9b3f5"];
 
 export function OptimizeResults({ result, funds, compareLabel, request }: Props) {
   const [activeTab, setActiveTab] = useState<ResultTab>("Summary");
@@ -295,11 +299,18 @@ function EquityCurveChart({ title, series }: { title: string; series: { label: s
 // all despite CDaR (Conditional Drawdown-at-Risk) being a selectable risk
 // measure. Same growth-of-100 math as EquityCurveChart, then tracks the
 // running peak and plots (value - peak) / peak as a filled area below 0.
+// Styled after the sibling backtester's AxisCurve "Drawdown path" panel
+// (gradient-filled underwater area, a header badge showing the worst
+// figure at a glance, a legend line, and a min/max/latest stat row under
+// the chart) rather than this file's plainer chart idiom -- ported the
+// backtester's visual language specifically here since drawdown is the
+// one chart both apps show in essentially the same shape.
 function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
   if (!returnsPct.length) return null;
   const width = 640;
   const height = 200;
   const padding = 40;
+  const gradientId = useId();
   let value = 100;
   let peak = 100;
   const drawdowns = returnsPct.map((r) => {
@@ -321,12 +332,29 @@ function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
   // others without something calling it out specifically.
   const worstPeriod = computeDrawdownPeriods(returnsPct)[0] as DrawdownPeriod | undefined;
   const worstBandEnd = worstPeriod ? worstPeriod.recoveryIndex ?? n - 1 : 0;
+  const maxDrawdown = minDd;
+  const latest = drawdowns[n - 1];
 
   return (
     <section className="chartPanel">
-      <h3>Drawdown</h3>
+      <div className="panelHeader compact">
+        <div>
+          <h3>Drawdown</h3>
+          <p>Underwater curve for the optimized portfolio's realized return series</p>
+        </div>
+        <span className="badge warn">Max {pct.format(maxDrawdown)}%</span>
+      </div>
+      <div className="chartLegend">
+        <span><i style={{ background: "var(--danger)" }} />Drawdown: {pct.format(latest)}%</span>
+      </div>
       <div className="chartCanvas">
         <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
+          <defs>
+            <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="var(--danger)" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="var(--danger)" stopOpacity="0.04" />
+            </linearGradient>
+          </defs>
           <line className="gridLine" x1={padding} x2={width - padding} y1={yZero} y2={yZero} />
           <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={yBottom} />
           <YAxisTicks format={(v) => `${v.toFixed(0)}%`} height={height} max={0} min={minDd} padding={padding} width={width} y={y} />
@@ -334,7 +362,7 @@ function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
           {worstPeriod ? (
             <rect fill="var(--danger)" fillOpacity={0.08} height={yBottom - padding} width={Math.max(x(worstBandEnd) - x(worstPeriod.startIndex), 2)} x={x(worstPeriod.startIndex)} y={padding} />
           ) : null}
-          <path d={areaPath} fill="var(--danger)" fillOpacity={0.18} stroke="none" />
+          <path d={areaPath} fill={`url(#${gradientId})`} stroke="none" />
           <path d={linePath} fill="none" stroke="var(--danger)" strokeWidth={2} />
           <text className="axisText" x={width / 2} y={height - 6}>Period</text>
           <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Drawdown (%)</text>
@@ -347,6 +375,11 @@ function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
             xAt={x}
           />
         </svg>
+      </div>
+      <div className="chartStats">
+        <span>Min (worst): {pct.format(maxDrawdown)}%</span>
+        <span>Max (best): {pct.format(Math.max(...drawdowns, 0))}%</span>
+        <span>Latest: {pct.format(latest)}%</span>
       </div>
     </section>
   );
@@ -808,7 +841,7 @@ function TransitionMap({ result, nameOf }: { result: OptimizeResult; nameOf: (id
           <YAxisTicks format={(v) => `${v.toFixed(0)}%`} height={height} max={100} min={0} padding={padding} width={width} y={(v) => height - padding - (v / 100) * (height - padding * 2)} />
           <XAxisTicks labels={evenIndexLabels(n)} padding={padding} width={width} y={height - padding + 14} />
           {ids.map((id, index) => (
-            <path d={bandPath(index)} fill={PALETTE[index % PALETTE.length]} fillOpacity={0.85} key={id} stroke="var(--bg)" strokeWidth={0.5} />
+            <path d={bandPath(index)} fill={PURPLE_SHADES[index % PURPLE_SHADES.length]} fillOpacity={0.9} key={id} stroke="var(--bg)" strokeWidth={0.5} />
           ))}
           <text className="axisText" x={width / 2} y={height - 8}>Frontier point (low to high risk)</text>
           <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Allocation (%)</text>
@@ -828,7 +861,7 @@ function TransitionMap({ result, nameOf }: { result: OptimizeResult; nameOf: (id
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
         {ids.map((id, index) => (
           <div key={id} style={{ alignItems: "center", display: "flex", fontSize: 12.5, gap: 6 }}>
-            <span style={{ background: PALETTE[index % PALETTE.length], borderRadius: 2, display: "inline-block", height: 10, width: 10 }} />
+            <span style={{ background: PURPLE_SHADES[index % PURPLE_SHADES.length], borderRadius: 2, display: "inline-block", height: 10, width: 10 }} />
             {nameOf(id)}
           </div>
         ))}
