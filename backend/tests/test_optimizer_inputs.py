@@ -220,3 +220,96 @@ def test_load_benchmark_returns_raises_on_missing_fund(monkeypatch):
     monkeypatch.setattr(inputs_module, "load_nav_panel", fake_load_nav_panel)
     with pytest.raises(ValueError, match="BENCHMARK_DATA_UNAVAILABLE"):
         load_benchmark_returns("NONEXISTENT_PROJ_ID", request)
+
+
+def test_capm_implied_return_method_differs_from_historical_mean():
+    request_historical = OptimizeRequest.model_validate({
+        "funds": [
+            {"projId": "M0209_2548", "displayName": "K-SET50"},
+            {"projId": "M0155_2547", "displayName": "M-S50"},
+        ],
+        "fundBounds": {}, "currentWeightPct": {}, "fundGroups": {},
+        "assetGroups": {L: {"name": "", "minWeightPct": 0, "maxWeightPct": 100} for L in "ABCDEF"},
+        "timePeriod": {"startDate": "2016-01-31", "endDate": "2019-12-31"},
+        "dataFrequency": "monthly", "goal": "max_sharpe", "riskMeasure": "std_dev",
+        "tailConfidence": 95, "targetAnnualVolatilityPct": 10.0, "targetAnnualReturnPct": 6.0,
+        "robustOptimization": False, "useHistoricalReturns": True,
+        "useHistoricalVolatility": True, "useHistoricalCorrelations": True,
+        "expectedReturnOverrides": {}, "volatilityOverrides": {}, "correlationOverrides": {},
+        "returnMethod": "historical_mean", "covarianceMethod": "sample", "blackLitterman": None,
+        "benchmarkProjId": None,
+        "constraints": {
+            "longOnly": True, "minWeightPct": 0, "maxWeightPct": 100,
+            "groupConstraintsEnabled": False, "maxHoldings": 20,
+            "lookbackPeriodMonths": 12, "optimizationFrequency": "quarterly",
+            "riskFreeRatePct": 1.5, "compareAgainst": "none",
+            "maxTurnoverPct": None, "maxTrackingErrorPct": None,
+        },
+    })
+    request_capm = request_historical.model_copy(update={"return_method": "capm_implied"})
+
+    from backend.app.optimizer.inputs import build_mu_sigma, build_returns_panel
+    returns = build_returns_panel(request_historical)
+    mu_historical, sigma_historical = build_mu_sigma(request_historical, returns)
+    mu_capm, sigma_capm = build_mu_sigma(request_capm, returns)
+
+    # Sigma must be unaffected by the return-method switch -- only mu
+    # changes.
+    assert sigma_historical.equals(sigma_capm)
+    # The two mu series must be genuinely different -- proving capm_implied
+    # is actually wired, not silently falling through to historical mean.
+    assert not mu_historical.equals(mu_capm)
+
+    # Independently hand-recompute Pi = risk_aversion * Sigma @ w_mkt with
+    # equal-weight market_weights and risk_aversion=2.5, via the same real
+    # black_litterman.compute_equilibrium_returns function, and confirm
+    # build_mu_sigma's capm_implied branch matches it exactly.
+    from backend.app.optimizer.black_litterman import compute_equilibrium_returns
+    market_weights = pd.Series(1.0 / len(sigma_historical.index), index=sigma_historical.index)
+    expected_mu = compute_equilibrium_returns(sigma_historical, risk_aversion=2.5, market_weights=market_weights)
+    pd.testing.assert_series_equal(mu_capm.sort_index(), expected_mu.sort_index(), check_names=False)
+
+
+def test_capm_implied_ignored_for_black_litterman_goal():
+    # goal=black_litterman already has its own separate equilibrium/posterior
+    # path (black_litterman.blend_posterior, called from service.py, not
+    # build_mu_sigma) -- returnMethod=capm_implied must not double-apply or
+    # otherwise change build_mu_sigma's output for this goal; build_mu_sigma
+    # should return the plain historical mean here regardless of
+    # return_method, since service.py's own BL branch is what actually
+    # matters for this goal.
+    request = OptimizeRequest.model_validate({
+        "funds": [
+            {"projId": "M0209_2548", "displayName": "K-SET50"},
+            {"projId": "M0155_2547", "displayName": "M-S50"},
+        ],
+        "fundBounds": {}, "currentWeightPct": {}, "fundGroups": {},
+        "assetGroups": {L: {"name": "", "minWeightPct": 0, "maxWeightPct": 100} for L in "ABCDEF"},
+        "timePeriod": {"startDate": "2016-01-31", "endDate": "2019-12-31"},
+        "dataFrequency": "monthly", "goal": "black_litterman", "riskMeasure": "std_dev",
+        "tailConfidence": 95, "targetAnnualVolatilityPct": 10.0, "targetAnnualReturnPct": 6.0,
+        "robustOptimization": False, "useHistoricalReturns": True,
+        "useHistoricalVolatility": True, "useHistoricalCorrelations": True,
+        "expectedReturnOverrides": {}, "volatilityOverrides": {}, "correlationOverrides": {},
+        "returnMethod": "capm_implied", "covarianceMethod": "sample",
+        "blackLitterman": {
+            "riskAversion": 2.5,
+            "tau": 0.05,
+            "benchmarkExpectedReturnPct": 6.0,
+            "views": [],
+        },
+        "benchmarkProjId": None,
+        "constraints": {
+            "longOnly": True, "minWeightPct": 0, "maxWeightPct": 100,
+            "groupConstraintsEnabled": False, "maxHoldings": 20,
+            "lookbackPeriodMonths": 12, "optimizationFrequency": "quarterly",
+            "riskFreeRatePct": 1.5, "compareAgainst": "none",
+            "maxTurnoverPct": None, "maxTrackingErrorPct": None,
+        },
+    })
+    from backend.app.optimizer.inputs import build_mu_sigma, build_returns_panel
+
+    returns = build_returns_panel(request)
+    mu, _sigma = build_mu_sigma(request, returns)
+    historical_mu = (returns * 100).mean() * 12
+    pd.testing.assert_series_equal(mu.sort_index(), historical_mu.sort_index(), check_names=False)

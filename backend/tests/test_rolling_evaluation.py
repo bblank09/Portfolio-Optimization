@@ -143,3 +143,36 @@ def test_a_thin_early_fold_is_skipped_not_fatal(two_real_fund_request, monkeypat
     assert "1 skipped during scoring" in note
     assert "2 folds dropped for insufficient training history" in note
     assert f"{len(folds)} of 15 scheduled folds" in note
+
+
+def test_expanding_mode_still_produces_the_same_folds_as_before(two_real_fund_request):
+    # Regression guard: two_real_fund_request never sets rollingWindowMode,
+    # so it defaults to "expanding" -- this must produce the exact same
+    # fold count and note as before this task's changes. This fixture's
+    # real cache already drops 2 of 15 scheduled folds for insufficient
+    # training history (see
+    # test_rolling_evaluation_against_real_cache_produces_folds_from_real_metrics
+    # and test_a_thin_early_fold_is_skipped_not_fatal, both pre-existing and
+    # unaffected by this task), so a non-None note here is expected, not a
+    # regression -- what matters is the exact same counts as those
+    # pre-existing tests already establish.
+    returns = _load_returns(two_real_fund_request)
+    folds, note = run_rolling_evaluation(two_real_fund_request, returns)
+    assert len(folds) == 13
+    assert note == (
+        "Rolling validation: 13 of 15 scheduled folds produced a result "
+        "(2 folds dropped for insufficient training history, 0 skipped during scoring)."
+    )
+
+
+def test_trailing_mode_against_real_cache(two_real_fund_request):
+    trailing_request = two_real_fund_request.model_copy(
+        update={
+            "constraints": two_real_fund_request.constraints.model_copy(
+                update={"rolling_window_mode": "trailing", "lookback_period_months": 12}
+            )
+        }
+    )
+    returns = _load_returns(trailing_request)
+    folds, _note = run_rolling_evaluation(trailing_request, returns)
+    assert len(folds) >= 1

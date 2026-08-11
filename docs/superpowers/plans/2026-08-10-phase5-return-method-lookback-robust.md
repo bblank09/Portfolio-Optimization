@@ -1120,7 +1120,6 @@ Then, inside `create_optimization`, immediately after the existing `proj_ids = [
 ```
 
 Note: `robust_optimization` is a TOP-LEVEL field on `OptimizeRequest`, NOT nested under `constraints` — `request.constraints.robust_optimization` does not exist and would raise `AttributeError`. This was confirmed directly against the real schema (`backend/app/domain/optimize_schemas.py`) during Task 6's implementation; use `optimize_request.robust_optimization` as shown above, not the constraints-nested form.
-
 Check the exact current line order in the file before inserting — this must run BEFORE `run_optimize` is called, so a client that will be rejected never pays for a partial solve.
 
 - [ ] **Step 4: Run tests to verify they pass**

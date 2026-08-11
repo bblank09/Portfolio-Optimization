@@ -31,6 +31,7 @@ from backend.app.optimizer import (
     holdings,
     inputs,
     report,
+    robust,
     rolling,
     solvers,
 )
@@ -75,7 +76,25 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         }
         mu = posterior
 
-    optimal_weights, constraint_note = holdings.enforce_max_holdings(request, mu, sigma, returns)
+    robust_initial_weights = None
+    robust_optimization_note = None
+    if request.robust_optimization:
+        robust_initial_weights, robust_optimization_note = robust.resample_and_solve(request, mu, sigma, returns)
+
+    optimal_weights, constraint_note = holdings.enforce_max_holdings(
+        request, mu, sigma, returns, initial_weights=robust_initial_weights
+    )
+
+    # enforce_max_holdings only uses initial_weights for its INITIAL solve;
+    # once the cap binds, every trim-loop re-solve is a plain single-shot
+    # solve_for_goal. A non-None constraint_note is exactly the signal that
+    # trimming happened, so in that case the resampled average is NOT what
+    # the user is looking at and the note must say so.
+    if robust_initial_weights is not None and constraint_note is not None and robust_optimization_note:
+        robust_optimization_note += (
+            " The max-holdings cap required re-solving after resampling; the final "
+            "allocation shown is a single-shot solve, not the resampled average."
+        )
 
     # A rolling-evaluation failure never blocks the primary weights result
     # (design spec). run_rolling_evaluation raises
@@ -146,6 +165,7 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         "feasibility": "ok",
         "feasibilityMessage": None,
         "robustNote": rolling_note,
+        "robustOptimizationNote": robust_optimization_note,
         "constraintNote": constraint_note,
         "optimalWeights": optimal_weights,
         "compareWeights": compare_weights,

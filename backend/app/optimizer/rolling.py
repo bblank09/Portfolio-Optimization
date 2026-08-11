@@ -56,24 +56,39 @@ def min_train_observations(fund_count: int) -> int:
 @dataclass(frozen=True)
 class FoldSpec:
     period_label: str
+    train_start: pd.Timestamp | None
     train_end: pd.Timestamp
     test_start: pd.Timestamp
     test_end: pd.Timestamp
 
 
-def build_fold_schedule(index: pd.DatetimeIndex, frequency: str) -> list[FoldSpec]:
-    """Expanding-window fold schedule keyed off calendar periods matching
-    ``frequency`` ("monthly"/"quarterly"/"annually", matching
-    OptimizationFrequency's values). Every fold's training window starts at
-    ``index[0]`` (the caller slices ``returns.loc[:fold.train_end]``, which
-    is expanding because it always starts from the same beginning); fold i
-    (0-indexed) trains through the last row of calendar period i -- so fold
-    0 trains on the first distinct period only -- and is tested on calendar
-    period i+1 in full. One fewer fold than there are distinct
+def build_fold_schedule(
+    index: pd.DatetimeIndex, frequency: str, mode: str = "expanding", lookback_months: int | None = None
+) -> list[FoldSpec]:
+    """Fold schedule keyed off calendar periods matching ``frequency``
+    ("monthly"/"quarterly"/"annually", matching OptimizationFrequency's
+    values). ``mode="expanding"`` (default, unchanged from this function's
+    original behavior): every fold's training window starts at
+    ``index[0]`` (``train_start`` stays ``None``, and the caller slices
+    ``returns.loc[:fold.train_end]``, which is expanding because it always
+    starts from the same beginning). ``mode="trailing"``: each fold's
+    training window is a FIXED length of ``lookback_months`` months
+    immediately preceding ``train_end``, sliding forward each fold instead
+    of growing -- ``train_start`` is set to the first index row on or after
+    ``train_end - lookback_months`` months, clamped to ``index.min()`` if
+    the requested lookback would start before the data actually begins.
+
+    Fold i (0-indexed) trains through the last row of calendar period i --
+    so fold 0 trains on the first distinct period only -- and is tested on
+    calendar period i+1 in full. One fewer fold than there are distinct
     calendar periods in ``index``, because the first period is
     training-only -- there is no preceding period for it to have been
-    tested "out of sample" against.
+    tested "out of sample" against. This fold COUNT and TEST-period
+    behavior is identical in both modes; only each fold's training WINDOW
+    start differs.
     """
+    if mode == "trailing" and lookback_months is None:
+        raise ValueError("lookback_months is required when mode='trailing'")
     if len(index) == 0:
         return []
     periods = pd.PeriodIndex(index, freq=_PERIOD_FREQ[frequency])
@@ -84,10 +99,20 @@ def build_fold_schedule(index: pd.DatetimeIndex, frequency: str) -> list[FoldSpe
         test_period = boundaries[i + 1]
         train_rows = index[periods == train_period]
         test_rows = index[periods == test_period]
+        train_end = train_rows.max()
+
+        train_start = None
+        if mode == "trailing" and lookback_months is not None:
+            cutoff = train_end - pd.DateOffset(months=lookback_months)
+            eligible = index[index >= cutoff]
+            train_start = eligible.min() if len(eligible) > 0 else index.min()
+            train_start = max(train_start, index.min())
+
         folds.append(
             FoldSpec(
                 period_label=str(test_period),
-                train_end=train_rows.max(),
+                train_start=train_start,
+                train_end=train_end,
                 test_start=test_rows.min(),
                 test_end=test_rows.max(),
             )
@@ -121,9 +146,21 @@ def run_rolling_evaluation(
     *during* its solve is a different, non-fatal path (see above).
     """
     frequency = request.constraints.optimization_frequency.value
-    schedule = build_fold_schedule(returns.index, frequency)
+    # ``.value`` normally, but ``model_copy(update=...)`` (used by tests to
+    # swap constraints without re-validating the whole request) assigns the
+    # raw string as-is rather than re-parsing it into the StrEnum, so this
+    # must tolerate a plain str here too.
+    raw_mode = request.constraints.rolling_window_mode
+    mode = raw_mode.value if hasattr(raw_mode, "value") else raw_mode
+    lookback_months = request.constraints.lookback_period_months if mode == "trailing" else None
+    schedule = build_fold_schedule(returns.index, frequency, mode=mode, lookback_months=lookback_months)
     train_floor = min_train_observations(len(request.funds))
-    usable = [f for f in schedule if len(returns.loc[: f.train_end]) >= train_floor]
+    usable = [
+        f
+        for f in schedule
+        if len(returns.loc[(f.train_start if f.train_start is not None else returns.index[0]) : f.train_end])
+        >= train_floor
+    ]
     dropped_by_training_floor = len(schedule) - len(usable)
     if len(usable) < 2:
         raise ValueError("INSUFFICIENT_ROLLING_HISTORY")
@@ -135,7 +172,8 @@ def run_rolling_evaluation(
     folds: list[dict] = []
     skipped = 0
     for fold in usable:
-        train_returns = returns.loc[: fold.train_end]
+        train_start = fold.train_start if fold.train_start is not None else returns.index[0]
+        train_returns = returns.loc[train_start : fold.train_end]
         test_returns = returns.loc[fold.test_start : fold.test_end]
         # Cheap pre-check: a test window this thin can never be scored (see
         # the post-alignment check below), so skip before paying for a solve

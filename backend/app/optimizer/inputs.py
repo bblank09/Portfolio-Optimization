@@ -3,6 +3,7 @@ import pandas as pd
 
 from backend.app.data.quality import align_nav_panel, validate_nav_panel
 from backend.app.domain.optimize_schemas import OptimizeRequest
+from backend.app.optimizer import black_litterman
 from backend.app.sec.cache import load_nav_panel
 
 _PERIODS_PER_YEAR = {"daily": 252, "weekly": 52, "monthly": 12}
@@ -116,7 +117,19 @@ def build_mu_sigma(request: OptimizeRequest, returns: pd.DataFrame) -> tuple[pd.
 
     sigma = sigma_period * ppy
 
-    mu = pct_returns.mean() * ppy
+    if request.return_method == "capm_implied" and request.goal != "black_litterman":
+        # Reuses the exact same reverse-optimization formula
+        # (Pi = risk_aversion * Sigma @ w_mkt) Black-Litterman already
+        # implements -- this return method can be selected independently
+        # of goal=black_litterman, so it uses standard defaults rather than
+        # requiring request.black_litterman to be set. goal=black_litterman
+        # is excluded here because it has its own separate equilibrium ->
+        # posterior pipeline (black_litterman.blend_posterior, called from
+        # service.py) that this branch would otherwise shadow.
+        market_weights = pd.Series(1.0 / len(sigma.index), index=sigma.index)
+        mu = black_litterman.compute_equilibrium_returns(sigma, risk_aversion=2.5, market_weights=market_weights)
+    else:
+        mu = pct_returns.mean() * ppy
     if not request.use_historical_returns:
         for proj_id, override in request.expected_return_overrides.items():
             if proj_id in mu.index:

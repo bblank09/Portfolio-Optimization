@@ -163,6 +163,29 @@ def test_hrp_raises_on_a_violated_group_cap_instead_of_silently_succeeding():
         solvers.solve_for_goal(request, mu, sigma, returns)
 
 
+def test_enforce_max_holdings_uses_initial_weights_when_provided():
+    request = _request(max_holdings=4)
+    mu, sigma, returns = _mu_sigma_returns()
+    fixed_initial = {"A": 25.0, "B": 25.0, "C": 25.0, "D": 25.0}
+    weights, note = enforce_max_holdings(request, mu, sigma, returns, initial_weights=fixed_initial)
+    # With max_holdings=4 on a 4-fund universe, no trimming is needed, so
+    # the returned weights must be exactly the provided initial_weights,
+    # NOT a fresh solve_for_goal result (which would very likely differ,
+    # since the fixture's funds have distinct volatilities).
+    assert weights == fixed_initial
+    assert note is None
+
+
+def test_enforce_max_holdings_still_trims_from_a_provided_initial_solve():
+    request = _request(max_holdings=1)
+    mu, sigma, returns = _mu_sigma_returns()
+    fixed_initial = {"A": 25.0, "B": 25.0, "C": 25.0, "D": 25.0}
+    weights, note = enforce_max_holdings(request, mu, sigma, returns, initial_weights=fixed_initial)
+    held = [pid for pid, w in weights.items() if w > 0.5]
+    assert len(held) <= 1
+    assert note is not None
+
+
 def test_never_exceeds_original_fund_count_minus_cap_iterations(monkeypatch):
     # A cap that can never be satisfied (every solve keeps returning all 4
     # funds nonzero) must still terminate, not loop forever -- verified by

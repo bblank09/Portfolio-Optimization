@@ -149,3 +149,72 @@ def test_run_optimize_enforces_max_holdings(two_real_fund_request):
     held = [pid for pid, w in result.optimal_weights.items() if w > 0.5]
     assert len(held) == 1
     assert result.constraint_note is not None
+
+
+def test_run_optimize_applies_robust_optimization_when_enabled(two_real_fund_request):
+    robust_request = two_real_fund_request.model_copy(update={"robust_optimization": True})
+    result = run_optimize(robust_request)
+    assert result.robust_optimization_note is not None
+    assert sum(result.optimal_weights.values()) == pytest.approx(100, abs=0.5)
+
+
+def test_run_optimize_leaves_robust_optimization_note_none_when_disabled(two_real_fund_request):
+    result = run_optimize(two_real_fund_request)
+    assert result.robust_optimization_note is None
+
+
+def test_robust_note_discloses_post_trim_resolve_when_max_holdings_binds(two_real_fund_request):
+    """Regression guard for the final-review finding: when maxHoldings binds,
+    holdings.enforce_max_holdings discards the resampled average and returns a
+    plain single-shot solve, so the robust note must not keep claiming the
+    allocation is the resampled average. Asserting on the note's TEXT, not
+    merely `is not None` -- the weak assertion is why this slipped through.
+    """
+    tight = two_real_fund_request.model_copy(
+        update={
+            "robust_optimization": True,
+            "goal": ObjectiveGoal.risk_parity,
+            "constraints": two_real_fund_request.constraints.model_copy(update={"max_holdings": 1}),
+        }
+    )
+    result = run_optimize(tight)
+
+    held = [pid for pid, w in result.optimal_weights.items() if w > 0.5]
+    assert len(held) == 1
+    assert result.constraint_note is not None
+    assert result.robust_optimization_note is not None
+    # The original resampling statement is preserved...
+    assert "resample" in result.robust_optimization_note.lower()
+    # ...and the disclosure that the shown allocation is NOT that average.
+    assert "single-shot solve, not the resampled average" in result.robust_optimization_note
+    assert "max-holdings cap" in result.robust_optimization_note
+
+
+def test_robust_note_unchanged_when_max_holdings_does_not_bind(two_real_fund_request):
+    result = run_optimize(two_real_fund_request.model_copy(update={"robust_optimization": True}))
+    assert result.constraint_note is None
+    assert result.robust_optimization_note is not None
+    assert "single-shot solve, not the resampled average" not in result.robust_optimization_note
+
+
+def test_trailing_rolling_window_with_robust_optimization_against_real_cache(two_real_fund_request):
+    """The design spec's smoke-matrix extension named BOTH robust_optimization
+    and rolling_window_mode="trailing"; only the robust variant existed. One
+    bounded cross-feature case (not a new parametrization dimension, matching
+    how the robust smoke test is already scoped)."""
+    request = two_real_fund_request.model_copy(
+        update={
+            "robust_optimization": True,
+            "constraints": two_real_fund_request.constraints.model_copy(
+                update={"rolling_window_mode": "trailing", "lookback_period_months": 12}
+            ),
+        }
+    )
+    result = run_optimize(request)
+
+    assert sum(result.optimal_weights.values()) == pytest.approx(100, abs=0.5)
+    assert result.robust_optimization_note is not None
+    assert len(result.rolling) >= 1
+    # Cheap non-degenerate check: the trailing folds are not all the same fold.
+    if len(result.rolling) > 1:
+        assert len({f.realized_return_pct for f in result.rolling}) > 1
