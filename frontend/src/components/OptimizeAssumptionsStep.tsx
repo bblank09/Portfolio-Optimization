@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Play, Plus, Trash2 } from "lucide-react";
-import { estimateEquilibriumReturns } from "../lib/mockOptimize";
+import { estimateEquilibriumReturns } from "../lib/blackLittermanPreview";
 import type { SecFund } from "../types/backtest";
 import { ASSET_GROUP_IDS } from "../types/optimize";
 import type {
@@ -608,6 +608,13 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
                 <option value={36}>36 months</option>
                 <option value={48}>48 months</option>
                 <option value={60}>60 months</option>
+              </select>
+            </div>
+            <div className="form-field">
+              <label htmlFor="rollingWindowMode">Rolling window mode</label>
+              <select className="field" id="rollingWindowMode" onChange={(event) => patchConstraints({ rollingWindowMode: event.target.value as OptimizeRequest["constraints"]["rollingWindowMode"] })} value={request.constraints.rollingWindowMode}>
+                <option value="expanding">Expanding (grows from the start date)</option>
+                <option value="trailing">Trailing (fixed-length, slides forward)</option>
               </select>
             </div>
             <div className="form-field">
