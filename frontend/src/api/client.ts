@@ -1,4 +1,5 @@
 import type { BacktestRequest, BacktestResult, DataStatus, SecFund } from "../types/backtest";
+import type { OptimizeRequest, OptimizeResult } from "../types/optimize";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -69,4 +70,11 @@ export async function runBacktest(payload: BacktestRequest): Promise<BacktestRes
     body: JSON.stringify(payload)
   });
   return { ...result, request: payload };
+}
+
+export async function runOptimize(payload: OptimizeRequest): Promise<OptimizeResult> {
+  return requestJson<OptimizeResult>("/api/optimize", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
