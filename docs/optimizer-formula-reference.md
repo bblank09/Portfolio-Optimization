@@ -348,8 +348,8 @@ and shrinkage covariance are unaffected.
 | --- | --- | --- |
 | Mean-Variance / Sharpe | **Yes** | `port.optimization(model="Classic", rm="MV", obj="Sharpe", rf=port.rf, l=0)`; `l=0` rules out the risk-aversion utility objective. μ/Σ assigned directly, not via `assets_stats()`. |
 | Semi-Variance | **Yes, with two caveats** | `RM_CODES["semi_variance"] = "MSV"`. riskfolio-lib's `SemiDeviation` fixes the target at the sample mean `E[X]` (no MAR parameter exists or is passed), and minimizes the semi-*deviation* (square root). Argmin is unchanged by the monotone √; reported units differ and `realized_risk` correctly annualizes it as a deviation. |
-| CVaR | **Formulation yes, `alpha` wiring NO** | `RM_CODES["cvar"] = "CVaR"`; riskfolio-lib builds `VaR + 1/(αT)Σz` (`Portfolio.py:2246`) — the Rockafellar–Uryasev LP exactly. But `Portfolio.optimization()` takes no `alpha` argument and reads `self.alpha`, default **0.05**, which `_build_portfolio` never sets — so the *solve* ignores `request.tailConfidence`. `_tail_alpha` reaches only `realized_risk` and `risk_contribution_pct`. Agrees only at the default `tailConfidence = 95`. |
-| CDaR | **Formulation yes, `alpha` wiring NO** | `RM_CODES["cdar"] = "CDaR"`; `DaR + 1/(αT)Σz_d` (`Portfolio.py:2300`) is the Chekhlov–Uryasev–Zabarankin LP. Same unset-`port.alpha` problem as CVaR. Also note riskfolio-lib defines it on *uncompounded* cumulative returns, unlike the backtest engine's compounded drawdown. |
+| CVaR | **Yes** (`alpha` wiring was a defect, now fixed) | `RM_CODES["cvar"] = "CVaR"`; riskfolio-lib builds `VaR + 1/(αT)Σz` (`Portfolio.py:2246`) — the Rockafellar–Uryasev LP exactly. `Portfolio.optimization()` takes no `alpha` argument and reads `self.alpha` (default **0.05**), which `_build_portfolio` did not set — so the *solve* ignored `request.tailConfidence` and agreed with the reporting only at `tailConfidence = 95`. **Fixed 2026-08-11** by `port.alpha = _tail_alpha(request)` in `_build_portfolio` (`solvers.py:187`), the same helper `realized_risk`/`risk_contribution_pct` already used; regression tests in `backend/tests/test_optimizer_tail_alpha_regression.py`. See `docs/manual-verification-2026-08-11.md` Finding A. |
+| CDaR | **Yes** (`alpha` wiring was a defect, now fixed) | `RM_CODES["cdar"] = "CDaR"`; `DaR + 1/(αT)Σz_d` (`Portfolio.py:2300`) is the Chekhlov–Uryasev–Zabarankin LP. Same unset-`port.alpha` defect as CVaR, fixed by the same one-line wiring on 2026-08-11. Also note riskfolio-lib defines it on *uncompounded* cumulative returns, unlike the backtest engine's compounded drawdown. |
 | Black-Litterman posterior | **Yes for the math; the market portfolio and Ω are documented approximations** | `Π = δΣw_mkt` implemented literally; posterior is `[inv(τΣ) + P'Ω⁻¹P]⁻¹[inv(τΣ)π + P'Ω⁻¹Q]`, matching He & Litterman (the brief's formula string mis-typed `P'ΩP` for `P'Ω⁻¹P`; the code is the correct one). `risk_aversion` and `tau` are required schema fields (no defaults). `w_mkt` is equal-weighted, not market-cap (no cap data for Thai funds). Ω uses an Idzorek-*style* `(PτΣP')(1/conf − 1)` closed form, not Idzorek (2004)'s actual numerical back-solve. |
 | HRP | **Yes** | `rp.HCPortfolio(...).optimization(model="HRP", codependence="pearson", linkage="single", rm=..., rf=...)` — single linkage and the `√((1−ρ)/2)` Pearson correlation distance are López de Prado's own choices. `rm` generalizes step 3 beyond inverse-variance when a non-MV risk measure is selected. Takes `returns` only, never μ/Σ. Group constraints are validated post-solve because `HCPortfolio` has no linear-constraint hook. |
 | Risk Parity | **Yes** | `port.rp_optimization(model="Classic", rm=rm, rf=..., b=None)`; `b=None` → `rb = ones(N)/N` (`Portfolio.py:3688`), the equal-risk-contribution budget of Maillard–Roncalli–Teïletche. Solved via the standard log-barrier risk-budgeting program riskfolio-lib cites Roncalli for. The paper's `wᵢ(Σw)ᵢ` form is the `rm="MV"` case; other `rm` values equalize that measure's contributions instead. |
@@ -369,6 +369,14 @@ and shrinkage covariance are unaffected.
   its `model="HRP"` / `linkage` / `codependence` API contract and
   docstring, not by re-deriving its bisection loop against López de
   Prado's pseudocode.
-- The `alpha`-wiring finding for CVaR/CDaR is stated as a **defect in
-  this project's code**, not in riskfolio-lib; it is reported here rather
-  than fixed, since this task is documentation-only.
+- The `alpha`-wiring finding for CVaR/CDaR was a **defect in this
+  project's code**, not in riskfolio-lib. It was reported here (this
+  task being documentation-only) and subsequently **fixed** in Phase 4
+  Task 4 — see `docs/manual-verification-2026-08-11.md`, Finding A.
+- The `k`-rescaling path flagged above as unaudited turned out to contain
+  a real, separate problem: riskfolio-lib's `obj="Sharpe"` falls back to a
+  **degenerate** program when `(mu < 0).all()` (`Portfolio.py:3450-3461`),
+  returning a dominated interior point instead of the true long-only
+  optimum. Diagnosed but not fixed — it is a library-level limitation with
+  no convex reformulation. See `docs/manual-verification-2026-08-11.md`,
+  Finding B.

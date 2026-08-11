@@ -175,6 +175,16 @@ def _build_portfolio(
             port.lowerret = request.target_annual_return_pct / 100
 
     port.rf = request.constraints.risk_free_rate_pct / 100
+
+    # Tail significance level for the quantile risk measures (CVaR, CDaR).
+    # Without this, riskfolio's `rp.Portfolio` constructor default
+    # (`self.alpha = 0.05`) is used for every solve, so a 97.5%/99% request
+    # SOLVED a 95% tail while the post-solve reporting (realized_risk /
+    # risk_contribution_pct, which pass `_tail_alpha(request)` explicitly)
+    # labelled and measured it at the requested confidence. Same helper as
+    # those two, so the solve and the reporting can never disagree.
+    # No-op for MV/MSV, which ignore `alpha`.
+    port.alpha = _tail_alpha(request)
     return port
 
 
