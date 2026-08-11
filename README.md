@@ -7,9 +7,9 @@
 
 # Portfolio Optimization
 
-**Portfolio optimization (mean-variance, Black-Litterman, risk parity, HRP/HERC) on SEC Thailand Open Data mutual fund NAV series**
+**Portfolio optimization (mean-variance, Black-Litterman, risk parity, HRP) on SEC Thailand Open Data mutual fund NAV series**
 
-> Forked from [Portfolio Backtester](../Backtest%20Portfolio%20Webull%3ASEC%20OPENAI) — reuses its SEC Thailand NAV data pipeline; the optimization engine itself is new (see `docs/optimization-assumptions.md`).
+> Forked from [Portfolio Backtester](../Backtest%20Portfolio%20Webull%3ASEC%20OPENAI) — reuses its SEC Thailand NAV data pipeline and cache; the optimization engine (`backend/app/optimizer/`) and its UI are new.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
@@ -43,25 +43,25 @@ Built by [**Supachok Julaupay**](https://github.com/bblank09) &middot; [github.c
 
 ## 1. Abstract
 
-This project answers a different question than its parent backtester: *given a universe of Thai mutual funds, what allocation would have been optimal under a stated objective (max Sharpe, min variance, risk parity, Black-Litterman, HRP/HERC), and how robust is that "optimal" weighting when re-evaluated out-of-sample on a rolling window?*
+This project answers a different question than its parent backtester: *given a universe of Thai mutual funds, what allocation would have been optimal under a stated objective (max Sharpe, min volatility, target volatility, min variance, risk parity, Black-Litterman, HRP), and how robust is that "optimal" weighting when re-evaluated out-of-sample on a rolling window?*
 
-It is a full-stack application — a FastAPI optimization engine (built on [riskfolio-lib](https://riskfolio-lib.readthedocs.io/en/latest/)) over the same cached SEC Thailand Open Data NAV series as the parent project, and a React/TypeScript dashboard for building a fund universe, choosing an optimization objective, and inspecting results (efficient frontier, optimal weights, risk contribution breakdown, and rolling out-of-sample performance).
+It is a full-stack application — a FastAPI optimization engine (built on [riskfolio-lib](https://riskfolio-lib.readthedocs.io/en/latest/)) over the same cached SEC Thailand Open Data NAV series as the parent project, and a React/TypeScript dashboard for building a fund universe, choosing an optimization objective and constraints, and inspecting results (efficient frontier, optimal weights, risk contribution breakdown, and rolling out-of-sample performance).
 
-**Status:** assumptions and methodology decided (see [`docs/optimization-assumptions.md`](docs/optimization-assumptions.md) for the full decision record and sources), and the Assumptions/Results UI fields are fully spec'd (see [`docs/mock-ui-spec.md`](docs/mock-ui-spec.md)); the optimization engine, backend wiring, and actual UI are not yet implemented — see Roadmap.
+**Status:** fully implemented and merged to `main` — every objective, constraint, and comparison feature described below is wired to the real backend; there is no mock data left anywhere in the app. See [`docs/optimization-assumptions.md`](docs/optimization-assumptions.md) for the underlying decision record and sources.
 
 ## 2. Motivation & Research Question
 
-Retail investors and quant-finance students in Thailand have no free, transparent tool to backtest portfolios built from Thai mutual funds specifically — global tools such as [Portfolio Visualizer](https://www.portfoliovisualizer.com/) and [testfol.io](https://testfol.io/) cover US/global assets but not SEC Thailand's fund universe.
+Retail investors and quant-finance students in Thailand have no free, transparent tool to build and optimize portfolios from Thai mutual funds specifically — global tools such as [Portfolio Visualizer](https://www.portfoliovisualizer.com/) and [testfol.io](https://testfol.io/) cover US/global assets but not SEC Thailand's fund universe.
 
-**Research question:** given a set of SEC-registered mutual funds, target weights, a historical window, and a cashflow/rebalancing/cost policy, what is the resulting time-weighted return, volatility, drawdown profile, and benchmark-relative risk — computed transparently enough that every number traces back to a stated formula and a cached, inspectable NAV series?
+**Research question:** given a set of SEC-registered mutual funds, an optimization objective, and a set of constraints (weight bounds, group caps, holding count, turnover, tracking error), what allocation actually minimizes/maximizes the stated objective — computed transparently enough that every number traces back to a stated formula and a cached, inspectable NAV series, and validated against how that allocation would actually have performed out-of-sample?
 
-The project deliberately excludes Monte Carlo simulation, portfolio optimization, efficient frontier construction, and live trading/broker execution — the scope is historical backtesting only, done rigorously.
+The project deliberately excludes live trading and broker execution — optimization and its out-of-sample validation only, no order placement.
 
 ## 3. Screenshots
 
-![Portfolio Backtester — step 1 of the 4-step workflow, with fund search and an allocation donut chart](docs/assets/dashboard.png)
+![Portfolio Optimization — step 1 of the 3-step workflow, with per-fund weight bounds and a live allocation donut chart](docs/assets/dashboard.png)
 
-_Step 1 of the guided workflow (Portfolio → Objective → Assumptions → Results): search-driven fund picker, live weight validation, and an allocation donut chart. A dark theme is also available via the top-bar toggle._
+_Step 1 of the guided workflow (Portfolio → Assumptions → Results): search-driven fund picker with per-fund min/max weight bounds and a live allocation donut chart. A dark theme is also available via the top-bar toggle._
 
 ## 4. System Architecture
 
@@ -70,20 +70,22 @@ flowchart LR
     SEC["SEC Open Data API<br/>(fund NAV, profiles)"]
     SECMOD["backend/app/sec/<br/>fetch + normalize"]
     CACHE[("data/sec/normalized/<br/>*.parquet cache")]
-    ENGINE["backend/app/engine/<br/>backtest calculations"]
+    ENGINE["backend/app/engine/<br/>return/risk metrics"]
+    OPT["backend/app/optimizer/<br/>riskfolio-lib solvers,\nrolling evaluator, robust opt."]
     API["backend/app/api/<br/>FastAPI REST (/api/v1/*)"]
     FE["frontend/src/<br/>React + TypeScript UI"]
     USER(["User's browser"])
 
     SEC -- "download NAV/profiles\n(scripts/sec_download_mvp.py)" --> SECMOD
     SECMOD -- "normalize + write" --> CACHE
-    CACHE -- "load_nav_panel()" --> ENGINE
-    API -- "run_backtest(request, nav)" --> ENGINE
-    ENGINE -- "result JSON" --> API
-    USER -- "build portfolio,\nset assumptions" --> FE
-    FE -- "POST /api/backtests\nGET /api/funds, /api/data-status" --> API
+    CACHE -- "load_nav_panel()" --> OPT
+    OPT -- "reuses metrics from" --> ENGINE
+    API -- "run_optimize(request, nav)" --> OPT
+    OPT -- "result JSON" --> API
+    USER -- "build portfolio,\nset objective + constraints" --> FE
+    FE -- "POST /api/optimize\nGET /api/funds, /api/data-status" --> API
     API -- "result / funds / status JSON" --> FE
-    FE -- "render tabs:\nSummary, Growth, Drawdown,\nReturns, Metrics, Cashflows,\nRebalancing, Report" --> USER
+    FE -- "render tabs:\nSummary, Frontier, Weights,\nPerformance, Rolling, Report" --> USER
 
     classDef external fill:#f3effc,stroke:#8b5cf6,color:#3a2a5c;
     classDef storage fill:#e7f6ee,stroke:#34c98a,color:#123527;
@@ -91,44 +93,46 @@ flowchart LR
     class CACHE storage;
 ```
 
-Everything downstream of the parquet cache is a pure function of it: `run_backtest()` never calls the SEC API directly, so a backtest result is always reproducible from `data/sec/normalized/` alone, and the app works fully offline once the cache is populated.
+Everything downstream of the parquet cache is a pure function of it: `run_optimize()` never calls the SEC API directly, so a result is always reproducible from `data/sec/normalized/` alone, and the app works fully offline once the cache is populated. The original backtest engine (`backend/app/engine/`) is not replaced — the rolling out-of-sample evaluator and performance-summary metrics reuse its return/risk formulas as-is; the optimizer module is additive.
 
 **Tech stack**
 
 | Layer | Technology |
 | --- | --- |
 | Frontend | React 18, TypeScript, Vite, hand-built SVG charting (no charting library dependency) |
-| Backend | FastAPI, Pydantic v2, pandas, numpy, scipy |
+| Backend | FastAPI, Pydantic v2, riskfolio-lib, CVXPY (CLARABEL solver), pandas, numpy, scipy |
 | Data | SEC Thailand Open Data API, cached locally as Parquet |
-| Testing | pytest (backend engine + API), tsc (frontend type-check) |
+| Testing | pytest (optimizer + engine + API), Playwright (frontend e2e against the real backend) |
 
-**Data flow:** SEC Open Data → `backend/app/sec/` fetch + normalize → local Parquet cache → `backend/app/engine/` computes the backtest against the cached panel → `backend/app/api/` serves the result → the frontend renders it across nine analysis tabs (Summary, Overview, Growth, Drawdown, Returns, Metrics, Cashflows, Rebalancing, Report).
+**Data flow:** SEC Open Data → `backend/app/sec/` fetch + normalize → local Parquet cache → `backend/app/optimizer/` builds expected returns/covariance, solves the objective via riskfolio-lib, runs the rolling out-of-sample evaluator → `backend/app/api/` serves the result → the frontend renders it across six result tabs (Summary, Frontier, Weights, Performance, Rolling, Report).
 
 ## 5. Methodology
 
 Full methodology and every formula used are documented and versioned in-repo, not just in this README:
 
-- [`docs/methodology.md`](docs/methodology.md) — data source, NAV alignment rules, cashflow/rebalancing treatment, and how missing data is handled (never forward-filled into a fabricated return).
-- [`docs/formula-reference.md`](docs/formula-reference.md) — every metric's exact formula (TWRR, CAGR, volatility, Sharpe, max drawdown, beta/alpha, tracking error, information ratio) with notation and implementation notes.
+- [`docs/optimization-assumptions.md`](docs/optimization-assumptions.md) — every optimization objective, risk measure, constraint, and comparison method: what it means, how it's computed, and the sources behind each decision (including a live comparison against PortfolioVisualizer's own tools).
+- [`docs/methodology.md`](docs/methodology.md) — data source, NAV alignment rules, and how missing data is handled (never forward-filled into a fabricated return) — inherited from the parent backtester and unchanged.
+- [`docs/formula-reference.md`](docs/formula-reference.md) — every performance metric's exact formula (TWRR, CAGR, volatility, Sharpe, Sortino, max drawdown, tracking error) with notation, reused as-is by the optimizer's rolling evaluator and performance summary.
 - [`docs/sec-api-contract.md`](docs/sec-api-contract.md) / [`docs/sec-data-inventory.md`](docs/sec-data-inventory.md) — the exact SEC Open Data endpoints and fields consumed.
-- [`docs/objective-workflows.md`](docs/objective-workflows.md) — how the four objective presets (Past Performance, Monthly DCA, Monthly Withdrawal, Rebalancing Impact) map to required/optional inputs.
 
-The in-app **Report** tab exposes this same audit trail per run: objective, inputs, formulas used, and stated limitations, exportable as `report.md`, `run_config.json`, and `metrics.json`.
+The in-app **Report** tab exposes the same audit trail per run: objective, constraints, the selected risk measure, and any caveats the backend surfaced (comparison method, constraint trimming, rolling-validation gaps, robust-optimization fallback).
 
 ## 6. Features
 
-- **Guided 4-step workflow** — Portfolio → Objective → Assumptions → Results, with a top stepper bar; each step is validated before the next unlocks (e.g. weights must sum to 100% before continuing).
-- **Search-driven fund picker** — click a fund field to browse the full SEC universe, or type to filter (by `proj_id`, fund name, or class); an allocation donut chart updates live as weights change.
-- **Objective-driven assumptions** — four presets (Past Performance, Monthly DCA, Monthly Withdrawal, Rebalancing Impact) auto-fill required inputs while keeping everything editable, with a plain-language review summary before running.
-- **Nine-tab result view** — Summary, Overview, Growth, Drawdown, Returns, Metrics, Cashflows, Rebalancing, Report.
-- **Interactive charts** — hover crosshair with per-series tooltips, full date-labeled axes (not just start/end), min/max/latest stats, on every time-series chart in the app.
-- **Monthly return heatmap, histogram, and rolling 12-month return/volatility/tracking-error.**
-- **Cashflow simulation** — recurring contribution or withdrawal, configurable frequency and timing (beginning/end of period).
-- **Rebalancing simulation** — none / monthly / quarterly / annual, with turnover and cost tracking.
-- **Benchmark risk decomposition** — beta, alpha, tracking error, information ratio, correlation.
+- **Guided 3-step workflow** — Portfolio → Assumptions → Results, with a top stepper bar; each step is validated before the next unlocks.
+- **Search-driven fund picker** — click a fund field to browse the full SEC universe, or type to filter (by `proj_id`, fund name, or class); per-fund min/max weight bounds and a live allocation donut chart.
+- **Seven optimization objectives** — Max Sharpe, Min Volatility, Max Return (target volatility), Min Variance, Risk Parity, Black-Litterman, and Hierarchical Risk Parity (HRP).
+- **Four risk measures** — Standard Deviation, Semi-Variance, CVaR, and CDaR, each with a selectable tail confidence for the two tail-risk measures.
+- **Three expected-return methods** — historical mean, CAPM-implied equilibrium returns, or Black-Litterman posterior returns (with editable views).
+- **Portfolio constraints** — long-only or short-allowed, per-fund and group weight caps, a maximum-holdings cap (enforced via a greedy trim-and-resolve heuristic when the exact cardinality constraint isn't solvable with this project's free solvers — see [`docs/optimization-assumptions.md`](docs/optimization-assumptions.md)), maximum turnover, and maximum tracking error vs. a benchmark.
+- **Rolling out-of-sample validation** — re-solves the objective on a rolling schedule (monthly/quarterly/annually) and scores each fold's realized return/volatility/Sharpe, in either expanding-window or fixed-length trailing-window mode.
+- **Robust optimization** — Michaud-style Monte Carlo resampling (500 bootstrap resamples, weights averaged across successful solves) to dampen estimation-error sensitivity in the main solve, matching the technique behind PortfolioVisualizer's own "Robust Optimization" toggle.
+- **Comparison portfolios** — compare the optimized result against an equal-weighted, inverse-volatility, max-Sharpe, risk-parity, or your own current allocation.
+- **Six-tab result view** — Summary, Frontier, Weights, Performance, Rolling, Report.
+- **Efficient frontier chart** — with markers for this run's optimal point, the global-minimum-variance point, and the tangency (max-Sharpe) point.
+- **Trade list** — current vs. optimal weights and the resulting one-way turnover, when a current allocation is set in Step 1.
 - **Light and dark themes** — toggle in the top bar, preference remembered across visits.
-- **Reproducibility verification** — every run persists `request.json` + `result.json`; a saved run can be recomputed and diffed against the stored result (`scripts/sec_verify_run_reproducibility.py`).
-- **Exportable research report** — Markdown report, run config, and metrics JSON, generated per run.
+- **Shareable links** — the full request encodes into the URL; opening a shared link re-runs the same optimization against the live backend.
 
 ## 7. Installation & Setup
 
@@ -145,7 +149,7 @@ python3 -m pip install -e ".[dev]"
 npm --prefix frontend install
 ```
 
-Copy `.env.example` to `.env` and set `SEC_API_KEY` only if you need to download or refresh SEC data — running a backtest against the committed local NAV cache does **not** call the SEC API and does not require a key.
+Copy `.env.example` to `.env` and set `SEC_API_KEY` only if you need to download or refresh SEC data — running an optimization against the committed local NAV cache does **not** call the SEC API and does not require a key.
 
 ### Keeping the cached NAV data fresh (optional)
 
@@ -172,8 +176,8 @@ The compose file deliberately uses a **named volume**, not a `./data:/app/data` 
 To build and run without compose:
 
 ```bash
-docker build -t portfolio-backtester .
-docker run -p 8000:8000 -v pb-data:/app/data portfolio-backtester
+docker build -t portfolio-optimizer .
+docker run -p 8000:8000 -v pb-data:/app/data portfolio-optimizer
 ```
 
 ## 8. Usage
@@ -185,48 +189,44 @@ python3 -m uvicorn backend.app.main:app --reload --port 8001   # matches the fro
 npm run frontend:dev
 ```
 
-Open the frontend dev server URL and follow the 4-step workflow: build a portfolio (search and add SEC funds until weights sum to 100%), pick an objective preset, review/adjust assumptions, then run the backtest.
-
-**Reproduce a saved run:**
-
-```bash
-python3 scripts/sec_verify_run_reproducibility.py <run_id>
-```
-
-This reruns the current engine against the same local NAV cache and compares selected summary metrics to the persisted result within a `1e-8` tolerance. It does not snapshot the historical cache, dependency versions, or engine version — a mismatch can mean the local cache or code changed since the run was saved, not necessarily a bug.
+Open the frontend dev server URL and follow the 3-step workflow: build a portfolio (search and add SEC funds, optionally set per-fund weight bounds), review/adjust the optimization objective and assumptions, then run the optimization.
 
 ## 9. Project Structure
 
 ```text
 backend/
   app/
-    api/        # FastAPI routes (funds, backtests)
+    api/         # FastAPI routes (funds, optimize, backtests, data-status)
     domain/      # Pydantic schemas, enums
-    engine/      # Backtest engine: returns, metrics, cashflows, rebalancing
+    engine/      # Return/risk metrics, reused by the optimizer's rolling evaluator
+    optimizer/   # riskfolio-lib solvers, inputs (mu/sigma), rolling evaluator, Black-
+                 #   Litterman, comparison portfolios, holdings/constraint enforcement,
+                 #   robust optimization (Monte Carlo resampling), frontier, service
     sec/         # SEC Open Data client, cache, normalizers
     reports/     # Markdown/report artifact generation
-  tests/         # pytest suite (engine, API, SEC client, reproducibility)
+  tests/         # pytest suite (optimizer, engine, API, SEC client)
 frontend/
   src/
-    api/         # Backend API client
-    components/  # PortfolioStep, ObjectiveStep, AssumptionsStep, RunSummary (results), RunOverlay, Stepper
-    objectives/  # Objective preset definitions
-    pages/       # BacktestWorkspace (4-step wizard shell)
+    api/         # Backend API client (runOptimize, fetchFunds, ...)
+    components/  # PortfolioStep, OptimizeAssumptionsStep, OptimizeResults, RunOverlay, Stepper
+    lib/         # Client-side helpers (e.g. the Black-Litterman equilibrium-return preview)
+    pages/       # OptimizeWorkspace (3-step wizard shell, the app's mounted root)
+  e2e/           # Playwright end-to-end specs
 data/
   sec/           # Cached SEC NAV data (normalized cache is committed; raw cache is gitignored)
   runs/          # Persisted run artifacts (gitignored)
-docs/            # Methodology, formula reference, SEC API contract, data inventory
-scripts/         # Data download and reproducibility verification scripts
+docs/            # Methodology, optimization assumptions, formula reference, SEC API contract
+scripts/         # Data download and universe-maintenance scripts
 ```
 
 ## 10. Testing & Validation
 
 ```bash
-python3 -m pytest backend/tests        # backend engine + API tests
-npx --prefix frontend tsc -b           # frontend type-check
+pytest                                  # full backend suite (optimizer + engine + API)
+npm --prefix frontend run build         # frontend type-check (tsc -b) + production build
 ```
 
-The backend test suite covers the engine's return calculations, metrics, cashflow/rebalancing logic, the SEC client/normalizer, the report generator, and run reproducibility — not just API smoke tests.
+The backend test suite covers every optimization objective and risk measure, the rolling out-of-sample evaluator (both expanding and trailing window modes), Black-Litterman, robust optimization, constraint enforcement (group caps, max holdings), comparison portfolios, the SEC client/normalizer, and a smoke matrix combining objectives × risk measures × comparison methods.
 
 **End-to-end (Playwright)**: exercises the real app in a real browser against the real backend and real cached SEC data — select funds, set assumptions, run, view results.
 
@@ -237,33 +237,33 @@ npx playwright install chromium   # first time only
 npm run test:e2e
 ```
 
-See [section 13](#13-limitations--known-issues)'s known flaky-test note for the one test that isn't fully stable yet.
-
 ## 11. Example Output
 
-Running a Past Performance backtest on a two-fund equal-weight portfolio (2020-01-31 to 2024-12-31, THB 100,000 initial capital) produces, among other outputs, ending value, TWRR/CAGR, annualized volatility, Sharpe ratio, maximum drawdown, and benchmark excess return — each traceable to its formula in the Report tab. See [`docs/presentation-use-cases-and-workflow.md`](docs/presentation-use-cases-and-workflow.md) for a walked-through example.
+Running a Max Sharpe optimization on a two-fund portfolio (2020-01-31 to 2026-07-31, monthly frequency) produces, among other outputs, optimal weights, expected return, volatility, Sharpe ratio, risk contribution per fund, and the efficient frontier — each traceable to its formula in the Report tab.
 
 ## 12. Success Metrics
 
-Targets for whoever operates this app to judge "is it healthy" without needing to read code. None of these are enforced automatically yet — there is no metrics dashboard or alerting in this version, only the structured request logging already added in `backend/app/api/backtests.py` (every request logs its fund ids, duration, and success/failure). These targets exist so there's a concrete bar to check that log against, and something concrete to build a dashboard/alert against later.
+Targets for whoever operates this app to judge "is it healthy" without needing to read code. None of these are enforced automatically yet — there is no metrics dashboard or alerting in this version, only structured request logging already added in `backend/app/api/optimize.py` (every request logs its fund ids, duration, and success/failure). These targets exist so there's a concrete bar to check that log against, and something concrete to build a dashboard/alert against later.
 
 | Metric | Target | How to check |
 | --- | --- | --- |
-| Successful backtest runs / day | Track as a baseline once real traffic exists; no target number yet for a single-user tool with no analytics deployed | `grep "backtest request succeeded" <log file> \| grep "$(date +%Y-%m-%d)" \| wc -l` |
-| Error rate on `POST /api/backtests` | **< 1%** of requests result in a 5xx (server-side failure) or an unexpected 4xx (excludes ordinary validation errors like weights not summing to 100%, which are expected user-input feedback, not app errors) | `(count of "backtest request failed" lines) / (count of "backtest request:" lines)` per day — note the trailing colon on the denominator's pattern, since "backtest request failed"/"succeeded" both also contain the substring "backtest request" |
-| p95 response time for a normal backtest | **< 3s** for a request against the current cached universe (≤12 funds, monthly frequency, ≤10-year window) | Each request logs `duration=%.3fs`; compute the 95th percentile from the logged durations over a time window |
+| Successful optimize runs / day | Track as a baseline once real traffic exists; no target number yet for a single-user tool with no analytics deployed | `grep "optimize request succeeded" <log file> \| grep "$(date +%Y-%m-%d)" \| wc -l` |
+| Error rate on `POST /api/optimize` | **< 1%** of requests result in a 5xx (server-side failure) or an unexpected 4xx (excludes ordinary validation errors and `INFEASIBLE_CONSTRAINTS`, which are expected user-input feedback, not app errors) | `(count of "optimize request failed" lines) / (count of "optimize request:" lines)` per day |
+| p95 response time for a normal (non-robust) optimize | **< 3s** for a request against the current cached universe with `robustOptimization: false` | Each request logs `duration=%.3fs`; compute the 95th percentile from the logged durations over a time window |
+| p95 response time for a robust-optimization request | **< 15s** — Monte Carlo resampling (500 bootstrap resamples) is measurably slower; a separate, stricter in-process rate limit (2/minute) applies to these requests specifically | Same log field, filtered to requests with `robustOptimization: true` |
 
-**Measured so far** (manual/E2E testing against the current 12-fund cache, not a load test): every real request logged during this project's development consistently completed in **0.05–0.2s** — comfortably under the 3s target. This is not a substitute for measuring p95 under real concurrent traffic once deployed, since the target exists specifically to catch degradation the developer's own testing wouldn't surface — e.g. if the cached fund universe grows well beyond its current 12 funds, `pd.read_parquet()`'s full-file load (it reads the entire cache into memory before filtering to the requested funds) becomes the likely bottleneck, well before 12-fund-scale testing would ever show it.
+**Measured so far** (manual/E2E testing against the current cached universe, not a load test): a normal (non-robust) optimize request consistently completes well under the 3s target; a robust-optimization request measured **6.7–7.4s** in development against the real NAV cache. Neither is a substitute for measuring p95 under real concurrent traffic once deployed.
 
 ## 13. Limitations & Known Issues
 
-- **Not investment advice.** All outputs are historical simulations, not predictions or recommendations.
-- **Survivorship bias — confirmed present.** The cached 800-fund universe (`data/sec/mvp_fund_universe.csv`) is built by [`scripts/sec_build_mvp_universe.py`](scripts/sec_build_mvp_universe.py), which explicitly keeps only records with `fund_status == "Registered"`. Verified live against the SEC Open Data API: of 11,500 total fund records, 4,900 are `Registered` and the remaining 6,600 are `Liquidated`, `Expired`, `Canceled`, or `IPO`. This means historical returns in this tool are computed only over funds that survived to today; funds that closed or merged away are not represented, which biases aggregate/comparative conclusions upward (see Elton, Gruber & Blake on survivorship bias in mutual fund databases). Do not treat this dataset as survivorship-bias-free, and do not extrapolate past this specific fund list to the broader Thai mutual fund market.
-- **Known SEC-wide NAV data gap: 2024-06-26 to ~2024-11-18.** SEC's own daily-info/nav API has no data for essentially every fund during this ~4.5-month window — confirmed by querying the live API directly (not just our cache), which returns the same gap. This is not a bug in this app's download pipeline. A backtest whose date range spans this window will be rejected with `INSUFFICIENT_NAV_HISTORY` rather than silently interpolating over missing data. For funds with a long history (registered well before 2024), the two continuously-testable windows are **2015-01-05 to 2024-06-26** and **~2024-12-30 onward** (94% of long-lived funds resume by then; a further ~6% have their own additional fund-specific gaps into 2025, unrelated to this shared incident — normal per-fund data variance, not a second systemic gap). Funds registered after the gap window are unaffected since their whole history starts later anyway.
+- **Not investment advice.** All outputs are computed from historical data under a stated objective, not predictions or recommendations.
+- **Survivorship bias — confirmed present.** The cached fund universe (`data/sec/mvp_fund_universe.csv`) is built by [`scripts/sec_build_mvp_universe.py`](scripts/sec_build_mvp_universe.py), which explicitly keeps only records with `fund_status == "Registered"`. This means historical returns in this tool are computed only over funds that survived to today; funds that closed or merged away are not represented, which biases aggregate/comparative conclusions upward (see Elton, Gruber & Blake on survivorship bias in mutual fund databases). Do not treat this dataset as survivorship-bias-free, and do not extrapolate past this specific fund list to the broader Thai mutual fund market.
+- **Known SEC-wide NAV data gap: 2024-06-26 to ~2024-11-18.** SEC's own daily-info/nav API has no data for essentially every fund during this ~4.5-month window — confirmed by querying the live API directly (not just our cache), which returns the same gap. This is not a bug in this app's download pipeline. A time period spanning this window will be rejected with `INSUFFICIENT_NAV_HISTORY` rather than silently interpolating over missing data.
+- **`maxHoldings` is a heuristic, not an exact solver constraint.** riskfolio-lib's own cardinality-constraint mechanism (`card`) requires a Mixed-Integer solver; this project's installed free solvers (CLARABEL for convex risk measures, HiGHS for pure-LP) cannot jointly solve a mixed boolean + SOCP problem. `maxHoldings` is instead enforced by a greedy post-solve trim-and-resolve loop, with the trimming disclosed in the result's `constraintNote` field — see [`docs/optimization-assumptions.md`](docs/optimization-assumptions.md) for the full research finding.
+- **Robust optimization is main-solve-only.** Monte Carlo resampling is applied to the primary optimization solve, not to the rolling evaluator's per-fold solves or the comparison portfolio's solve — an explicit decision to avoid a resample × fold multiplication of solve cost.
 - **No live/real-time data** — the engine reads a locally cached NAV snapshot, refreshed automatically via `.github/workflows/refresh-sec-data.yml` (daily) or manually via `scripts/sec_download_mvp.py`.
-- **Scope** — no Monte Carlo simulation, portfolio optimization, efficient frontier, or live broker execution by design.
-- **Single-user, no persistence** — portfolios and results exist only in browser state for the current session; there is no account system or saved-portfolio database yet.
-- **Known flaky E2E test**: `frontend/e2e/happy-path.spec.ts`'s second test ("URL updates with a shareable run id...") intermittently fails under Playwright/headless Chromium automation (roughly 1 in 4–5 runs), even though the feature it tests works correctly — confirmed via manual browser testing, curl, and debug logging showing the app's own state-setting code runs correctly every single time, including in the failing case. Root cause not identified despite extensive investigation (ruled out: Vite dev-server/HMR, React state-batching via `flushSync`, Playwright-locator-specific timing via a direct `waitForFunction` DOM check). `retries: 2` in `playwright.config.ts` mitigates it without masking a real regression, since an actual bug would fail deterministically rather than ~20% of the time. The first test in the same file (the core happy path: select funds → assumptions → run → view results) has never been observed to fail.
+- **Scope** — no live/broker trade execution by design; optimization and its out-of-sample validation only.
+- **Single-user, no persistence** — portfolios and results exist only in browser state (or a shareable URL) for the current session; there is no account system or saved-portfolio database yet.
 
 ## 14. Roadmap
 
@@ -277,5 +277,5 @@ Released under the [MIT License](LICENSE).
 
 - **Author:** [Supachok Julaupay](https://github.com/bblank09) &mdash; [github.com/bblank09](https://github.com/bblank09).
 - Fund NAV and profile data: [SEC Thailand Open Data](https://api.sec.or.th/) (Securities and Exchange Commission, Thailand).
-- Reference tools consulted during design: [Portfolio Visualizer](https://www.portfoliovisualizer.com/analysis), [testfol.io](https://testfol.io/help), [Portfolio Performance](https://www.portfolio-performance.info/en/).
+- Reference tools consulted during design: [Portfolio Visualizer](https://www.portfoliovisualizer.com/analysis) (optimize-portfolio, efficient-frontier, rolling-optimization, black-litterman-model, and robust-optimization tools, confirmed live), [riskfolio-lib documentation](https://riskfolio-lib.readthedocs.io/en/latest/).
 - Icons: [Lucide](https://lucide.dev/).
