@@ -176,8 +176,6 @@ export function OptimizeWorkspace() {
         setTestableRange(range);
         // The sibling backtester has this same client-side "don't re-clamp
         // an already-set date when the bound shrinks" gap, but it's caught
-        // The sibling backtester has this same client-side "don't re-clamp
-        // an already-set date when the bound shrinks" gap, but it's caught
         // server-side (POST /api/backtests rejects an out-of-range request
         // with INSUFFICIENT_NAV_HISTORY, and POST /api/optimize does the
         // same). Re-clamp here too, the one place both bounds are known at
