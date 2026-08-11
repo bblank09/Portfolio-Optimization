@@ -181,7 +181,7 @@ docker run -p 8000:8000 -v pb-data:/app/data portfolio-backtester
 **Run the dev servers** (from the repository root, so cache/run-artifact paths resolve correctly):
 
 ```bash
-python3 -m uvicorn backend.app.main:app --reload
+python3 -m uvicorn backend.app.main:app --reload --port 8001   # matches the frontend dev proxy's default target
 npm run frontend:dev
 ```
 

@@ -24,7 +24,7 @@ pytest                                    # full suite (backend/tests/), pythonp
 pytest backend/tests/test_backtest_engine.py::test_name -v   # single test
 ruff check .                              # lint
 mypy backend                              # type-check (explicit_package_bases = true)
-uvicorn backend.app.main:app --reload --port 8000
+uvicorn backend.app.main:app --reload --port 8001   # matches the frontend dev proxy's default target below
 ```
 
 **Frontend** (from `frontend/`, or via root `package.json` proxies `frontend:dev`/`frontend:build`)
