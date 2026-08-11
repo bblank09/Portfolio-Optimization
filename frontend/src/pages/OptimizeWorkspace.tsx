@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchFunds, fetchTestableRange } from "../api/client";
+import { fetchFunds, fetchTestableRange, runOptimize } from "../api/client";
 import { OptimizeAssumptionsStep } from "../components/OptimizeAssumptionsStep";
 import { OptimizeResults } from "../components/OptimizeResults";
 import { PortfolioStep } from "../components/PortfolioStep";
 import { RunOverlay } from "../components/RunOverlay";
 import { Stepper } from "../components/Stepper";
-import { runMockOptimize } from "../lib/mockOptimize";
 import type { SecFund, SecFundAllocation } from "../types/backtest";
 import { ASSET_GROUP_IDS } from "../types/optimize";
 import type { AssetGroup, AssetGroupId, OptimizeRequest, OptimizeResult } from "../types/optimize";
@@ -63,16 +62,16 @@ const initialRequest: OptimizeRequest = {
     riskFreeRatePct: 1.5,
     compareAgainst: "equal_weighted",
     maxTurnoverPct: null,
-    maxTrackingErrorPct: null
+    maxTrackingErrorPct: null,
+    rollingWindowMode: "expanding"
   }
 };
 
-// No backend persists a run yet (Phase 4 mock -- see CLAUDE.md), so there's
-// no server-issued run_id to put in a shareable URL the way the sibling
-// backtester's copyShareLink does. runMockOptimize is fully deterministic
-// from the request alone, though, so a shareable link here encodes the
-// request itself (funds reduced to proj_ids) -- reloading it reproduces the
-// identical result client-side, no backend round-trip needed.
+// POST /api/optimize doesn't persist a run_id (unlike POST /api/backtests),
+// so there's no server-issued id to put in a shareable URL the way the
+// sibling backtester's copyShareLink does. Instead, a shareable link here
+// encodes the request itself (funds reduced to proj_ids) -- reloading it
+// re-submits the identical request to the real optimizer.
 type SharedRequest = Omit<OptimizeRequest, "funds"> & { fundProjIds: string[] };
 
 function encodeShareState(request: OptimizeRequest): string {
@@ -113,7 +112,7 @@ export function OptimizeWorkspace() {
 
   // Restore a shared link (?state=<encoded request>) once funds are loaded
   // (needed to resolve fundProjIds back into full SecFund objects), then
-  // replay the same deterministic mock and jump straight to Results.
+  // replay the real optimization and jump straight to Results.
   useEffect(() => {
     if (!funds.length) return;
     const url = new URL(window.location.href);
@@ -126,14 +125,29 @@ export function OptimizeWorkspace() {
     const restored: OptimizeRequest = { ...(rest as OptimizeRequest), funds: restoredFunds };
     setRequest(restored);
     if (restoredFunds.length >= 2) {
-      try {
-        setResult(runMockOptimize(restored));
-        setUnlockedStep(2);
-        setCurrentStep(2);
-      } catch {
-        // Malformed/stale shared state -- fall back to leaving the user on
-        // Step 1 with the restored selections instead of a broken Results page.
-      }
+      let cancelled = false;
+      setLoading(true);
+      setError("");
+      runOptimize(restored)
+        .then((restoredResult) => {
+          if (cancelled) return;
+          setResult(restoredResult);
+          setUnlockedStep(2);
+          setCurrentStep(2);
+        })
+        .catch((caught: unknown) => {
+          if (cancelled) return;
+          // Malformed/stale shared state (e.g. a fund the cache no longer
+          // covers) -- surface why, leave the user on Step 1 with the
+          // restored selections instead of a silent, unexplained stall.
+          setError(caught instanceof Error ? caught.message : "Could not restore the shared optimization.");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funds.length]);
@@ -162,14 +176,14 @@ export function OptimizeWorkspace() {
         setTestableRange(range);
         // The sibling backtester has this same client-side "don't re-clamp
         // an already-set date when the bound shrinks" gap, but it's caught
+        // The sibling backtester has this same client-side "don't re-clamp
+        // an already-set date when the bound shrinks" gap, but it's caught
         // server-side (POST /api/backtests rejects an out-of-range request
-        // with INSUFFICIENT_NAV_HISTORY). This Phase 4 mock has no backend
-        // at all -- runMockOptimize never validates timePeriod against fund
-        // coverage -- so swapping in a fund with a much narrower window
-        // (e.g. one that started trading last week) left the date inputs
-        // holding a stale value below their own new `min`, silently
-        // accepted by "Run optimization" with zero warning. Re-clamp here,
-        // the one place both bounds are known at the same time.
+        // with INSUFFICIENT_NAV_HISTORY, and POST /api/optimize does the
+        // same). Re-clamp here too, the one place both bounds are known at
+        // the same time, so a fund swap to a much narrower window doesn't
+        // silently leave the date inputs holding a stale value below their
+        // own new `min` until the request round-trips to the server.
         if (range.start && range.end) {
           setRequest((current) => {
             const clampedStart = current.timePeriod.startDate < range.start! ? range.start! : current.timePeriod.startDate > range.end! ? range.end! : current.timePeriod.startDate;
@@ -201,9 +215,9 @@ export function OptimizeWorkspace() {
   // own optimize-portfolio tool ("Portfolio asset weights and constraints
   // are optional", and its default "Asset Constraints: Yes" puts Min./Max.
   // Weight columns directly in the same asset table). The per-fund weight
-  // itself isn't fed anywhere yet (Phase 5: it would become the reference/
-  // starting allocation); the per-fund min/max bounds ARE used, in
-  // mockOptimize's allocateWeights. See docs/mock-ui-spec.md Step 1.
+  // itself feeds the trade-list/turnover computation server-side; the
+  // per-fund min/max bounds are used as solver constraints. See
+  // docs/mock-ui-spec.md Step 1.
   function handleAssetsChange(assets: SecFundAllocation[]) {
     setResult(null);
     setError("");
@@ -289,13 +303,9 @@ export function OptimizeWorkspace() {
   async function submit() {
     setLoading(true);
     setError("");
-    // Phase 4 mock: no backend call yet. A short artificial delay plus the
-    // existing RunOverlay staged UI keeps the loading-state UX identical to
-    // what Phase 5's real POST /api/optimize will need.
-    await new Promise((resolve) => window.setTimeout(resolve, 900));
     try {
-      const mockResult = runMockOptimize(request);
-      setResult(mockResult);
+      const optimizeResult = await runOptimize(request);
+      setResult(optimizeResult);
       advanceTo(2);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Optimization failed");
@@ -335,7 +345,6 @@ export function OptimizeWorkspace() {
         <div className="brand">
           <img alt="Portfolio Optimization" className="mark" src="/brand/topbar-mark.png" />
           <span>Portfolio Optimization</span>
-          <span className="tag">Mock UI &mdash; Phase 4, no live optimizer yet</span>
         </div>
         <Stepper currentStep={currentStep} onStepClick={goToStep} unlockedStep={unlockedStep} />
         <button className="theme-toggle" onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))} type="button">
