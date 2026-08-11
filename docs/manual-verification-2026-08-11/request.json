@@ -1,0 +1,42 @@
+{
+  "funds": [
+    {"projId": "M0209_2548", "displayName": "K-SET50"},
+    {"projId": "M0155_2547", "displayName": "M-S50"}
+  ],
+  "fundBounds": {},
+  "currentWeightPct": {},
+  "fundGroups": {},
+  "assetGroups": {},
+  "timePeriod": {"startDate": "2024-02-29", "endDate": "2024-05-31"},
+  "dataFrequency": "monthly",
+  "goal": "max_sharpe",
+  "riskMeasure": "std_dev",
+  "tailConfidence": 95,
+  "targetAnnualVolatilityPct": null,
+  "targetAnnualReturnPct": null,
+  "robustOptimization": false,
+  "useHistoricalReturns": true,
+  "useHistoricalVolatility": true,
+  "useHistoricalCorrelations": true,
+  "expectedReturnOverrides": {},
+  "volatilityOverrides": {},
+  "correlationOverrides": {},
+  "returnMethod": "historical_mean",
+  "covarianceMethod": "sample",
+  "blackLitterman": null,
+  "benchmarkProjId": null,
+  "constraints": {
+    "longOnly": true,
+    "minWeightPct": 0,
+    "maxWeightPct": 100,
+    "groupConstraintsEnabled": false,
+    "maxHoldings": 2,
+    "lookbackPeriodMonths": 12,
+    "optimizationFrequency": "monthly",
+    "rollingWindowMode": "expanding",
+    "riskFreeRatePct": 1.5,
+    "compareAgainst": "none",
+    "maxTurnoverPct": null,
+    "maxTrackingErrorPct": null
+  }
+}
