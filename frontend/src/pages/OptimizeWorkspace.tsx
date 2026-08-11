@@ -82,7 +82,17 @@ function encodeShareState(request: OptimizeRequest): string {
 
 function decodeShareState(raw: string): SharedRequest | null {
   try {
-    return JSON.parse(decodeURIComponent(atob(raw))) as SharedRequest;
+    const decoded = JSON.parse(decodeURIComponent(atob(raw))) as SharedRequest;
+    // A link shared before a constraint field existed decodes without it,
+    // leaving e.g. constraints.rollingWindowMode undefined -- which makes
+    // the Assumptions <select> bound to it flip from controlled to
+    // uncontrolled (React warns, and the field renders blank). Layer the
+    // current defaults underneath whatever the link actually carried so an
+    // older link is upgraded to a complete request instead of a partial one.
+    return {
+      ...decoded,
+      constraints: { ...initialRequest.constraints, ...decoded.constraints }
+    };
   } catch {
     return null;
   }

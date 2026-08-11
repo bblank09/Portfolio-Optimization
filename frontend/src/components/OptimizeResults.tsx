@@ -15,6 +15,12 @@ type ResultTab = "Summary" | "Frontier" | "Weights" | "Performance" | "Rolling" 
 const TABS: ResultTab[] = ["Summary", "Frontier", "Weights", "Performance", "Rolling", "Report"];
 
 const pct = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+// Several backend fields are legitimately null (a realized metric that is
+// undefined for this request -- no complete calendar year in the window, a
+// zero-downside series). Passing null straight into pct.format() renders a
+// fabricated "0%", so every nullable field goes through these instead.
+const fmtPct = (value: number | null | undefined) => (value === null || value === undefined ? "N/A" : `${pct.format(value)}%`);
+const fmtNum = (value: number | null | undefined) => (value === null || value === undefined ? "N/A" : String(value));
 // Same palette PortfolioStep's AllocationDonut uses, so a fund reads as
 // the same color across the Portfolio step and these Results charts.
 const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
@@ -24,8 +30,8 @@ export function OptimizeResults({ result, funds, compareLabel, request }: Props)
   const nameOf = (projId: string) => funds.find((f) => f.proj_id === projId)?.display_name ?? projId;
   // compareLabel reflects Constraints' "Compared Allocation" *setting*, not
   // whether a comparison actually got computed -- "Your Current Portfolio"
-  // resolves to null in mockOptimize when the shortlist has no current
-  // (Step 1) weights entered, since there's nothing to compare against.
+  // resolves to null server-side when the shortlist has no current (Step 1)
+  // weights entered, since there's nothing to compare against.
   // Every place that surfaces compareLabel below (Summary narrative +
   // checklist + footnote, Weights header, Report's Objective section) must
   // agree with whether result.compareWeights is actually present -- using
@@ -59,7 +65,7 @@ export function OptimizeResults({ result, funds, compareLabel, request }: Props)
       <div className="resultHeader">
         <div>
           <span className="sourceLine">Optimization result</span>
-          <h2>{funds.length} funds &middot; mock data (Phase 4, no backend yet)</h2>
+          <h2>{funds.length} funds</h2>
         </div>
         <button className="secondaryButton" onClick={() => downloadText("optimization-result.json", JSON.stringify(result, null, 2), "application/json")} type="button">
           <Download size={16} /> Result JSON
@@ -255,8 +261,23 @@ function NotesPanel({ result }: { result: OptimizeResult }) {
     <div className="notePanel">
       <p>
         The possible range of expected annual returns for this shortlist is <b>{pct.format(minRet)}%</b> to <b>{pct.format(maxRet)}%</b>, depending on how much risk is taken -- see the Frontier tab.
-        {result.robustNote ? " Robust optimization was applied to this run." : ""}
       </p>
+    </div>
+  );
+}
+
+// Shared renderer for the backend's four optional caveat strings
+// (robustNote, robustOptimizationNote, constraintNote, compareNote). Each
+// is null whenever there's nothing to say, and rendering an empty badged
+// box in that case is worse than rendering nothing -- so this returns null
+// for a missing or blank note rather than making every caller repeat the
+// guard.
+function CaveatNote({ badge, note }: { badge: string; note: string | null }) {
+  if (!note || !note.trim()) return null;
+  return (
+    <div className="notePanel">
+      <span className="badge">{badge}</span>
+      <p>{note}</p>
     </div>
   );
 }
@@ -319,12 +340,11 @@ function SummaryTab({ result, nameOf, compareLabel, setActiveTab, request }: { r
           ) : null}
         </p>
       </section>
-      {result.robustNote ? (
-        <div className="notePanel">
-          <span className="badge">Robust Optimization</span>
-          <p>{result.robustNote}</p>
-        </div>
-      ) : null}
+      {/* robustNote carries rolling out-of-sample validation caveats (folds
+          dropped for insufficient training history), NOT anything about the
+          robustOptimization toggle -- robustOptimizationNote is that one. */}
+      <CaveatNote badge="Rolling Validation" note={result.robustNote} />
+      <CaveatNote badge="Robust Optimization" note={result.robustOptimizationNote} />
       <div className="metricGrid">
         <ClickableMetric label="Expected return" onClick={() => setActiveTab("Performance")} sub="See Performance tab" value={`${pct.format(optimized?.expectedReturnPct ?? 0)}%`} />
         <ClickableMetric label="Volatility" onClick={() => setActiveTab("Performance")} sub="See Performance tab" value={`${pct.format(optimized?.stdDevPct ?? 0)}%`} />
@@ -342,6 +362,7 @@ function SummaryTab({ result, nameOf, compareLabel, setActiveTab, request }: { r
         <RiskContributionBars nameOf={nameOf} riskContributionPct={result.riskContributionPct} />
       </section>
       <ResultChecklist compareLabel={compareLabel} request={request} result={result} />
+      <CaveatNote badge="Constraints" note={result.constraintNote} />
       {result.bindingConstraints.length ? (
         <section className="tablePanel">
           <h3>What's actually constraining this result</h3>
@@ -400,9 +421,12 @@ function ResultChecklist({ result, compareLabel, request }: { result: OptimizeRe
     },
     { label: "Solver converged", status: "ok", detail: "feasible solution found" },
     {
+      // Driven by the toggle the user actually set in Assumptions. It used
+      // to be driven by result.robustNote's presence, which is a rolling
+      // out-of-sample caveat and says nothing about robust optimization.
       label: "Robust optimization",
       status: "ok",
-      detail: result.robustNote ? "applied" : "not enabled"
+      detail: request?.robustOptimization ? "applied" : "not enabled"
     },
     {
       label: "Comparison allocation",
@@ -546,7 +570,7 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
             </div>
           ))}
         </div>
-        <p className="field-hint">Mock frontier -- Phase 5 replaces this with riskfolio-lib's real efficient_frontier() output.</p>
+        <p className="field-hint">Frontier points come from riskfolio-lib's efficient-frontier solve over the selected time period.</p>
       </section>
       <TransitionMap nameOf={nameOf} result={result} />
       <section className="tablePanel">
@@ -808,6 +832,7 @@ function WeightsTab({ result, nameOf, compareLabel }: { result: OptimizeResult; 
   const ids = Object.keys(result.optimalWeights);
   return (
     <div className="tabStack">
+      <CaveatNote badge="Comparison" note={result.compareNote} />
       <TradeListPanel result={result} />
       <section className="panelGrid">
         <div className="chartPanel">
@@ -925,16 +950,16 @@ function ReturnHistogram({ monthlyReturnsPct }: { monthlyReturnsPct: number[] })
           <text className="axisText" x={width / 2} y={height - 6}>Monthly return (%)</text>
         </svg>
       </div>
-      <p className="field-hint">{monthlyReturnsPct.length}-month synthetic return series for the optimized portfolio (mock -- Phase 5 uses the real historical/simulated series).</p>
+      <p className="field-hint">{monthlyReturnsPct.length}-month realized return series for the optimized weights over the selected time period.</p>
     </section>
   );
 }
 
 // PV's own Trailing Returns table compounds the last N calendar periods
-// (3 Month/YTD/1Y/3Y/5Y/Full). result.monthlyReturnsPct is a synthetic
-// 36-period sample, not tied to real calendar dates, so this labels
-// periods generically ("Last 3 periods") instead of borrowing calendar
-// labels that would misrepresent mock data as dated history.
+// (3 Month/YTD/1Y/3Y/5Y/Full). result.monthlyReturnsPct is a real realized
+// series but arrives as bare values with no accompanying dates, so this
+// labels periods generically ("Last 3 periods") instead of borrowing
+// calendar labels the response can't actually justify.
 function trailingReturn(monthlyReturnsPct: number[], periods: number): number {
   const slice = monthlyReturnsPct.slice(-periods);
   const compounded = slice.reduce((acc, r) => acc * (1 + r / 100), 1);
@@ -956,7 +981,7 @@ function TrailingReturnsPanel({ monthlyReturnsPct }: { monthlyReturnsPct: number
           </tbody>
         </table>
       </div>
-      <p className="field-hint">Compounded return over the trailing N periods of the {monthlyReturnsPct.length}-period synthetic series -- not calendar-dated, since this is mock data (see the return distribution note below).</p>
+      <p className="field-hint">Compounded return over the trailing N periods of the {monthlyReturnsPct.length}-period realized series -- numbered by position, since the series arrives without per-period dates.</p>
     </section>
   );
 }
@@ -1031,7 +1056,7 @@ function DrawdownPeriodsPanel({ monthlyReturnsPct }: { monthlyReturnsPct: number
           </tbody>
         </table>
       </div>
-      <p className="field-hint">Worst {periods.length} underwater periods in the synthetic return series (mock -- period numbers, not calendar dates).</p>
+      <p className="field-hint">Worst {periods.length} underwater periods in the realized return series (numbered by position, not calendar dates).</p>
     </section>
   );
 }
@@ -1051,16 +1076,19 @@ function PerformanceTab({ result }: { result: OptimizeResult }) {
               <tr><td>CAGR</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.cagrPct)}%</td>)}</tr>
               <tr><td>Expected return</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.expectedReturnPct)}%</td>)}</tr>
               <tr><td>Std deviation</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.stdDevPct)}%</td>)}</tr>
-              <tr><td>Best year</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.bestYearPct)}%</td>)}</tr>
-              <tr><td>Worst year</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.worstYearPct)}%</td>)}</tr>
-              <tr><td>Max drawdown</td>{result.performanceSummary.map((c) => <td key={c.label}>{pct.format(c.maxDrawdownPct)}%</td>)}</tr>
+              {/* These five are nullable server-side (undefined for this
+                  request, e.g. no complete calendar year in the window) --
+                  render "N/A" rather than letting null format as 0%. */}
+              <tr><td>Best year</td>{result.performanceSummary.map((c) => <td key={c.label}>{fmtPct(c.bestYearPct)}</td>)}</tr>
+              <tr><td>Worst year</td>{result.performanceSummary.map((c) => <td key={c.label}>{fmtPct(c.worstYearPct)}</td>)}</tr>
+              <tr><td>Max drawdown</td>{result.performanceSummary.map((c) => <td key={c.label}>{fmtPct(c.maxDrawdownPct)}</td>)}</tr>
               <tr><td>Sharpe (ex-ante)</td>{result.performanceSummary.map((c) => <td key={c.label}>{c.sharpeExAnte}</td>)}</tr>
-              <tr><td>Sharpe (ex-post)</td>{result.performanceSummary.map((c) => <td key={c.label}>{c.sharpeExPost}</td>)}</tr>
-              <tr><td>Sortino</td>{result.performanceSummary.map((c) => <td key={c.label}>{c.sortino}</td>)}</tr>
+              <tr><td>Sharpe (ex-post)</td>{result.performanceSummary.map((c) => <td key={c.label}>{fmtNum(c.sharpeExPost)}</td>)}</tr>
+              <tr><td>Sortino</td>{result.performanceSummary.map((c) => <td key={c.label}>{fmtNum(c.sortino)}</td>)}</tr>
               <tr>
                 <td>Selected risk measure: {rm.label}</td>
                 <td>{pct.format(rm.optimizedValue)}%</td>
-                {result.performanceSummary[1] ? <td>{rm.comparedValue !== null ? `${pct.format(rm.comparedValue)}%` : "-"}</td> : null}
+                {result.performanceSummary[1] ? <td>{fmtPct(rm.comparedValue)}</td> : null}
               </tr>
             </tbody>
           </table>
@@ -1187,7 +1215,7 @@ function ReportTab({ result, compareLabel, nameOf, request }: { result: Optimize
 
       <section className="reportPanel">
         <h3>Optimization Report</h3>
-        <p className="footnote">Generated {result.generatedAt} &middot; mock data, Phase 4 &mdash; no real optimization has run yet</p>
+        <p className="footnote">Generated {result.generatedAt}</p>
 
         {/* Section numbers are assigned dynamically (not hardcoded "4."/"5."
             etc) because several sections only render when their data is
@@ -1366,7 +1394,14 @@ function buildReportSections({ result, compareLabel, nameOf, request }: {
 
   sections.push({
     label: "Status",
-    content: <p>Phase 4 mock &mdash; these numbers are deterministically generated from your inputs for UI review, not a real optimization. Phase 5 wires this to a real riskfolio-lib-backed backend.</p>
+    content: (
+      <p>
+        Computed by the riskfolio-lib-backed optimizer (<code>POST /api/optimize</code>) over the cached SEC Open Data NAV history for the funds and time period above. Solver status: <b>feasible solution found</b>.
+        {result.robustNote ? ` ${result.robustNote}` : ""}
+        {result.robustOptimizationNote ? ` ${result.robustOptimizationNote}` : ""}
+        {result.constraintNote ? ` ${result.constraintNote}` : ""}
+      </p>
+    )
   });
 
   return sections;

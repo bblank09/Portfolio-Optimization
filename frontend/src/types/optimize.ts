@@ -1,8 +1,10 @@
-// Types for the Portfolio Optimization mock (Phase 4). No backend endpoint
-// exists yet -- see lib/mockOptimize.ts for the deterministic mock that
-// stands in for a real POST /api/optimize call. Field names/shapes here
-// follow docs/mock-ui-spec.md, which is itself sourced against riskfolio-lib
-// docs and a live walkthrough of PortfolioVisualizer's optimize-portfolio /
+// Request/response types for the real POST /api/optimize endpoint. These
+// mirror backend/app/domain/optimize_schemas.py by hand -- there is no
+// codegen, so keep both sides in sync manually when either changes (the
+// backend's CamelModel base serializes its snake_case fields as the
+// camelCase names used here). The field set itself follows
+// docs/mock-ui-spec.md, which is sourced against riskfolio-lib docs and a
+// live walkthrough of PortfolioVisualizer's optimize-portfolio /
 // efficient-frontier / rolling-optimization / black-litterman-model tools.
 
 import type { SecFund } from "./backtest";
@@ -179,12 +181,17 @@ export interface PerformanceSummaryColumn {
   cagrPct: number;
   expectedReturnPct: number;
   stdDevPct: number;
-  bestYearPct: number;
-  worstYearPct: number;
-  maxDrawdownPct: number;
+  // These five are realized-performance fields computed from the actual
+  // periodic return series, and the backend returns null when one is
+  // genuinely undefined for the request (no complete calendar year in the
+  // window, a degenerate zero-downside series) rather than fabricating a
+  // number -- render them as "N/A", never as 0.
+  bestYearPct: number | null;
+  worstYearPct: number | null;
+  maxDrawdownPct: number | null;
   sharpeExAnte: number;
-  sharpeExPost: number;
-  sortino: number;
+  sharpeExPost: number | null;
+  sortino: number | null;
 }
 
 export interface RollingFold {

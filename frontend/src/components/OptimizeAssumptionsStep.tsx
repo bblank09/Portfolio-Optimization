@@ -712,6 +712,7 @@ function BlackLittermanCard({
 
       <div className="section-title" style={{ marginTop: 20 }}>1. Market equilibrium returns (&Pi;)</div>
       <p className="field-hint">What the model already implies for each fund before any view is applied -- set your views below relative to these, not blind.</p>
+      <p className="field-hint">Illustrative preview only: these are client-side placeholder figures for anchoring your views. Running the optimization computes the real equilibrium returns server-side from actual NAV history, and the Results tab reports those.</p>
       <div className="tableScroller">
         <table>
           <thead><tr><th>Fund</th><th>Equilibrium return</th></tr></thead>
