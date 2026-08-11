@@ -107,6 +107,10 @@ def test_cdar_solve_honors_tail_confidence():
     )
 
 
+# Captured by running _solve("cvar", 95) against the UNFIXED solvers.py.
+PRE_FIX_CVAR_95 = {"A": 79.29521800642769, "B": 20.704781993572308}
+
+
 def test_default_tail_confidence_is_unchanged_by_the_alpha_wiring():
     """Regression guard for the DEFAULT case.
 
@@ -119,7 +123,3 @@ def test_default_tail_confidence_is_unchanged_by_the_alpha_wiring():
     at_95 = _solve("cvar", 95)
     assert at_95["A"] == pytest.approx(PRE_FIX_CVAR_95["A"], abs=1e-6)
     assert at_95["B"] == pytest.approx(PRE_FIX_CVAR_95["B"], abs=1e-6)
-
-
-# Captured by running _solve("cvar", 95) against the UNFIXED solvers.py.
-PRE_FIX_CVAR_95 = {"A": 79.29521800642769, "B": 20.704781993572308}

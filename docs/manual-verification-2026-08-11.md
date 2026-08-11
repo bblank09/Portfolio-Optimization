@@ -142,16 +142,18 @@ See Finding B.
 
 ## Formula citation verification
 
-`docs/optimizer-formula-reference.md`'s Verification Table covers 8
-formula families. **6 of 8 matched their citation outright** —
+`docs/optimizer-formula-reference.md`'s Verification Table covers 9
+formula families. **6 of 9 matched their citation outright** —
 Mean-Variance/Sharpe, Black-Litterman posterior, HRP, Risk Parity, Risk
-Contribution %, and Robust-Optimization resampling. Semi-Variance matched
-with two documented caveats (riskfolio-lib fixes the semi-deviation target
-at the sample mean with no MAR parameter, and minimizes the deviation
-rather than the semi-variance — the argmin is unchanged by the monotone
-square root).
+Contribution %, and Robust-Optimization resampling. Semi-Variance (1 of 9)
+matched with two documented caveats (riskfolio-lib fixes the semi-deviation
+target at the sample mean with no MAR parameter, and minimizes the
+deviation rather than the semi-variance — the argmin is unchanged by the
+monotone square root). That leaves 2 of 9 — CVaR and CDaR — which had a
+real bug at the time of the audit, now fixed (6 clean + 1 caveated + 2
+bug-then-fixed = 9).
 
-The two that did **not** match were **CVaR and CDaR**: both LP
+The two that did **not** match outright were **CVaR and CDaR**: both LP
 *formulations* are literally Rockafellar–Uryasev and
 Chekhlov–Uryasev–Zabarankin as cited, but the tail level `alpha` was never
 wired into the solve. That is Finding A, and it is now fixed; the
@@ -202,11 +204,18 @@ portfolios at 95 % vs. 99 %; one ignoring it returns identical weights.
   — the regression guard, pinning the pre-fix 95 % solution as literal
   numbers captured from the unfixed code.
 
-Run against the unfixed `solvers.py` (verified by stashing the fix): the
-first two **FAIL** with weights byte-identical across confidences —
-CVaR `{A: 79.2952, B: 20.7048}` at both 95 % and 99 %; CDaR
-`{A: 42.7347, B: 57.2653}` at both — and the guard passes. That is the
-bug's observable symptom.
+Run against the unfixed `solvers.py` (verified by forcing `port.alpha =
+0.05` regardless of `request.tailConfidence`, reproducing the pre-fix
+behavior against the exact fixture in
+`backend/tests/test_optimizer_tail_alpha_regression.py`): the first two
+**FAIL** with weights byte-identical across confidences — CVaR
+`{A: 79.2952, B: 20.7048}` at both 95 % and 99 %; CDaR
+`{A: 16.2363, B: 83.7637}` at both — and the guard passes. That is the
+bug's observable symptom. Note the pre-fix CDaR number is identical to the
+post-fix CDaR-95 % number below (both solved with `alpha = 0.05`, since
+95 % coincidentally maps to the same value the unfixed code always used);
+only the pre-fix-99 % number differs from post-fix, since pre-fix the 99 %
+request never actually reached `alpha = 0.01`.
 
 **The fix.** `backend/app/optimizer/solvers.py:179-187` — in
 `_build_portfolio`, after `port.rf`, add `port.alpha = _tail_alpha(request)`,

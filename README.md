@@ -113,6 +113,7 @@ Full methodology and every formula used are documented and versioned in-repo, no
 - [`docs/optimization-assumptions.md`](docs/optimization-assumptions.md) — every optimization objective, risk measure, constraint, and comparison method: what it means, how it's computed, and the sources behind each decision (including a live comparison against PortfolioVisualizer's own tools).
 - [`docs/methodology.md`](docs/methodology.md) — data source, NAV alignment rules, and how missing data is handled (never forward-filled into a fabricated return) — inherited from the parent backtester and unchanged.
 - [`docs/formula-reference.md`](docs/formula-reference.md) — every performance metric's exact formula (TWRR, CAGR, volatility, Sharpe, Sortino, max drawdown, tracking error) with notation, reused as-is by the optimizer's rolling evaluator and performance summary.
+- [`docs/optimizer-formula-reference.md`](docs/optimizer-formula-reference.md) — every optimizer formula's exact citation and code-verification status — mean-variance, CVaR/CDaR, Black-Litterman, HRP, robust optimization.
 - [`docs/sec-api-contract.md`](docs/sec-api-contract.md) / [`docs/sec-data-inventory.md`](docs/sec-data-inventory.md) — the exact SEC Open Data endpoints and fields consumed.
 
 The in-app **Report** tab exposes the same audit trail per run: objective, constraints, the selected risk measure, and any caveats the backend surfaced (comparison method, constraint trimming, rolling-validation gaps, robust-optimization fallback).

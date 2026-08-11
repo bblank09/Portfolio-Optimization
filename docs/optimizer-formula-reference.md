@@ -98,25 +98,33 @@ The formulation itself matches: riskfolio-lib builds
 Rockafellar–Uryasev auxiliary-variable LP, solved with CLARABEL, not a
 historical quantile.
 
-**However, the `alpha` wiring does NOT fully match the request.** This is
-a real finding, not a formality:
+**The `alpha` wiring previously did NOT fully match the request — this bug
+was found, fixed, and is now covered by a regression test.** History, for
+anyone reading this after the fact:
 
 - `rp.Portfolio.optimization()`'s signature is
   `(self, model, rm, obj, kelly, rf, l, hist)` — it takes **no `alpha`
   argument**. It reads `self.alpha`, whose constructor default is `0.05`
-  (`Portfolio.py` line 295/377). `_build_portfolio` never sets
-  `port.alpha`, so **every CVaR/CDaR solve runs at a fixed 5% tail
+  (`Portfolio.py` line 295/377). Before the fix, `_build_portfolio` never
+  set `port.alpha`, so **every CVaR/CDaR solve ran at a fixed 5% tail
   regardless of `request.tailConfidence`.**
 - `_tail_alpha(request)` (`= clip(1 − tail_confidence/100, 1e-4, 0.5)`,
-  the correct 1−confidence convention) *is* correctly wired, but only
+  the correct 1−confidence convention) *was* correctly wired, but only
   into the two *post-solve reporting* calls:
   `realized_risk` → `rp.RiskFunctions.Sharpe_Risk(..., alpha=_tail_alpha(request))`
   and `risk_contribution_pct` → `rp.RiskFunctions.Risk_Contribution(..., alpha=...)`.
-- Net effect: with `tailConfidence` at its default 95, `_tail_alpha`
-  returns 0.05 and solve and reporting agree exactly. At any other
-  `tailConfidence` the *reported* CVaR uses the user's tail while the
-  *optimized* weights were chosen at the 5% tail. Correcting this would
-  mean setting `port.alpha = _tail_alpha(request)` in `_build_portfolio`.
+- Net effect while the bug was present: with `tailConfidence` at its
+  default 95, `_tail_alpha` returns 0.05 and solve and reporting agreed
+  exactly, which is why the bug was invisible at the default. At any
+  other `tailConfidence` the *reported* CVaR used the user's tail while
+  the *optimized* weights were still chosen at the 5% tail.
+- **Fixed 2026-08-11:** `_build_portfolio` now sets
+  `port.alpha = _tail_alpha(request)` (`backend/app/optimizer/solvers.py:187`),
+  so the solve and the post-solve reporting always agree. Covered by
+  `backend/tests/test_optimizer_tail_alpha_regression.py`, which asserts
+  a 99% CVaR/CDaR solve produces materially different weights from a 95%
+  solve, and pins the (unchanged) 95% solve against numbers captured from
+  the unfixed code as a regression guard.
 
 ## CDaR (Conditional Drawdown at Risk)
 
@@ -141,9 +149,13 @@ numbers are close but not identical for long horizons, and the optimizer
 never reports a CDaR figure to the UI as a drawdown percentage, so this
 does not surface as an inconsistency.
 
-Same `alpha` caveat as CVaR above: the solve uses riskfolio-lib's
-default `self.alpha = 0.05`, not `request.tailConfidence`. Only the
-post-solve `realized_risk` / `risk_contribution_pct` calls honor it.
+Same `alpha` history as CVaR above: before the fix, the solve used
+riskfolio-lib's default `self.alpha = 0.05`, not `request.tailConfidence`,
+while only the post-solve `realized_risk` / `risk_contribution_pct` calls
+honored it. **Fixed 2026-08-11** by the same
+`port.alpha = _tail_alpha(request)` assignment in `_build_portfolio`
+(`backend/app/optimizer/solvers.py:187`), covered by the same
+`backend/tests/test_optimizer_tail_alpha_regression.py`.
 
 ## Black-Litterman Posterior Returns
 
