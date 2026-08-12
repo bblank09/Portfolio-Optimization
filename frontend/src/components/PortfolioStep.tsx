@@ -269,6 +269,9 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
   const allNamed = rows.every((row) => row.projId !== "");
   const weightsReady = weightsOptional || Math.abs(total - 100) < 0.05;
   const complete = allNamed && weightsReady && committedRows.length > 0;
+  const weightStatus = weightsOptional
+    ? (committedRows.length ? "optional" : "select funds")
+    : complete ? "ready" : "incomplete";
   const selectedIds = new Set(rows.map((row) => row.projId));
 
   function gridClass(base: string): string {
@@ -290,7 +293,7 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
         <h1>Build your portfolio</h1>
         <p>
           {weightsOptional
-            ? "Search SEC-registered mutual funds by name or class, then pick which ones to include. Weights below are optional -- the optimizer computes the real ones in the next step."
+            ? "Search SEC-registered mutual funds by name or class, then pick which ones to include. Weights below are optional — the optimizer computes the actual allocation in the next step."
             : "Search SEC-registered mutual funds by name or class, set target weights, and confirm they sum to 100% before setting your assumptions."}
         </p>
       </div>
@@ -356,16 +359,8 @@ export function PortfolioStep({ funds, active, onAssetsChange, onContinue, weigh
             </div>
           </div>
           <div className="weight-total">
-            {/* Even when weightsOptional (OptimizeWorkspace), still show the
-                running total -- these weights double as the "current
-                portfolio" the optimizer's Results tab compares against and
-                builds a trade list from, so the user needs to know whether
-                what they've entered actually sums to 100%, not just whether
-                the Continue button is unlocked. PV's own asset table keeps
-                a "Total" row for the same reason even though its own weights
-                are documented as optional. */}
-            Total <span>{formatPct(total)}</span>
-            <span className={complete ? "pill ok" : "pill warn"}>{complete ? "ready" : "incomplete"}</span>
+            {weightsOptional ? "Reference total" : "Total"} <span>{formatPct(total)}</span>
+            <span className={weightsOptional ? "pill info" : complete ? "pill ok" : "pill warn"}>{weightStatus}</span>
           </div>
         </div>
 

@@ -1,6 +1,11 @@
+import json
 import logging
 import time
 from collections import defaultdict
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Request
 from slowapi.util import get_remote_address
@@ -12,6 +17,7 @@ from backend.app.domain.optimize_schemas import OptimizeRequest
 from backend.app.optimizer.service import run_optimize
 
 router = APIRouter(prefix="/optimize", tags=["optimize"])
+RUNS_DIR = Path("data/runs")
 logger = logging.getLogger("app.optimize")
 
 # A second, independent rate limit specific to robustOptimization=true
@@ -87,5 +93,54 @@ def create_optimization(request: Request, optimize_request: OptimizeRequest) -> 
             detail="Optimization failed unexpectedly.",
             code=ErrorCode.INTERNAL_ERROR,
         ) from exc
-    logger.info("optimize request succeeded: duration=%.3fs", time.monotonic() - started)
-    return result.model_dump(by_alias=True, mode="json")
+    run_id = make_run_id()
+    created_at = utc_now().isoformat(timespec="seconds").replace("+00:00", "Z")
+    result_payload = result.model_dump(by_alias=True, mode="json")
+    result_payload.update({
+        "runId": run_id,
+        "createdAt": created_at,
+        "dataSource": "sec_open_data",
+    })
+    persist_run(run_id, optimize_request, result_payload)
+    logger.info("optimize request succeeded: run_id=%s duration=%.3fs", run_id, time.monotonic() - started)
+    return result_payload
+
+
+@router.get("/{run_id}")
+def get_optimization(run_id: str) -> dict[str, Any]:
+    # run_id is used to build a filesystem path -- reject anything that could
+    # escape RUNS_DIR (path separators, ".."), rather than trusting a value
+    # that arrives from a public URL.
+    if run_id != Path(run_id).name or run_id in ("", ".", ".."):
+        raise AppHTTPException(status_code=404, detail=f"Optimization run not found: {run_id}", code=ErrorCode.RUN_NOT_FOUND)
+
+    run_dir = RUNS_DIR / run_id
+    result_path = run_dir / "result.json"
+    if not result_path.is_file():
+        raise AppHTTPException(status_code=404, detail=f"Optimization run not found: {run_id}", code=ErrorCode.RUN_NOT_FOUND)
+
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    request_path = run_dir / "request.json"
+    result["request"] = json.loads(request_path.read_text(encoding="utf-8")) if request_path.is_file() else None
+    return result
+
+
+def make_run_id() -> str:
+    return f"run_{utc_now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def persist_run(run_id: str, request: OptimizeRequest, result: dict[str, Any]) -> None:
+    run_dir = RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
+    (run_dir / "request.json").write_text(
+        json.dumps(request.model_dump(by_alias=True, mode="json"), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False),
+        encoding="utf-8",
+    )

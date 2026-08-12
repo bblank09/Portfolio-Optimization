@@ -238,6 +238,9 @@ export interface SelectedRiskMeasureResult {
 }
 
 export interface OptimizeResult {
+  runId: string;
+  createdAt: string;
+  dataSource: "sec_open_data";
   feasibility: FeasibilityStatus;
   feasibilityMessage: string | null;
   // Rolling out-of-sample validation caveats (e.g. folds dropped for
@@ -285,4 +288,22 @@ export interface OptimizeResult {
   gmvPoint: FrontierMarker | null;
   tangencyPoint: FrontierMarker | null;
   generatedAt: string; // ISO timestamp, for the Report tab's run metadata line
+}
+
+// Persisted runs keep the complete optimizer configuration, but only need
+// the fund identity fields to hydrate the current SEC fund catalog on load.
+// The live catalog supplies the remaining metadata used by the UI. These
+// fields use the optimizer API's camelCase aliases, unlike the live SEC fund
+// catalog's snake_case fields.
+export interface SavedOptimizeFund {
+  projId: string;
+  displayName: string;
+}
+
+export type SavedOptimizeRequest = Omit<OptimizeRequest, "funds"> & {
+  funds: SavedOptimizeFund[];
+};
+
+export interface OptimizeRunResult extends OptimizeResult {
+  request: SavedOptimizeRequest;
 }

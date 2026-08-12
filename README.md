@@ -133,7 +133,7 @@ The in-app **Report** tab exposes the same audit trail per run: objective, const
 - **Efficient frontier chart** — with markers for this run's optimal point, the global-minimum-variance point, and the tangency (max-Sharpe) point.
 - **Trade list** — current vs. optimal weights and the resulting one-way turnover, when a current allocation is set in Step 1.
 - **Light and dark themes** — toggle in the top bar, preference remembered across visits.
-- **Shareable links** — the full request encodes into the URL; opening a shared link re-runs the same optimization against the live backend.
+- **Shareable links** — each successful optimization is persisted under `data/runs/<run_id>`; the Results header's Share link copies a compact `?run=<run_id>` URL that reloads the saved result and inputs.
 
 ## 7. Installation & Setup
 
@@ -264,7 +264,7 @@ Targets for whoever operates this app to judge "is it healthy" without needing t
 - **Robust optimization is main-solve-only.** Monte Carlo resampling is applied to the primary optimization solve, not to the rolling evaluator's per-fold solves or the comparison portfolio's solve — an explicit decision to avoid a resample × fold multiplication of solve cost.
 - **No live/real-time data** — the engine reads a locally cached NAV snapshot, refreshed automatically via `.github/workflows/refresh-sec-data.yml` (daily) or manually via `scripts/sec_download_mvp.py`.
 - **Scope** — no live/broker trade execution by design; optimization and its out-of-sample validation only.
-- **Single-user, no persistence** — portfolios and results exist only in browser state (or a shareable URL) for the current session; there is no account system or saved-portfolio database yet.
+- **Run storage has no account system** — persisted optimization runs are addressed by their generated run ID/URL on the configured server storage; there is no user account or saved-portfolio ownership layer yet.
 
 ## 14. Roadmap
 

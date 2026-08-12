@@ -260,7 +260,7 @@ export function AssumptionsStep({
         <div className={advancedOpen ? "advanced-body open" : "advanced-body"}>
           <div className="form-grid">
             <div className="form-field">
-              <label htmlFor="riskFreeRate">Risk-free rate (% / yr)</label>
+              <label htmlFor="riskFreeRate">Risk-free rate (%/yr)</label>
               <input
                 className="field num"
                 id="riskFreeRate"

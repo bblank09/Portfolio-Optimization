@@ -291,7 +291,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           ) : null}
           {isTargetVol ? (
             <div className="form-field">
-              <label htmlFor="targetVol">Targeted annual volatility (%)</label>
+              <label htmlFor="targetVol">Target annual volatility (%)</label>
               <input
                 className="field num"
                 id="targetVol"
@@ -305,7 +305,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           ) : null}
           {isMinVolatility ? (
             <div className="form-field">
-              <label htmlFor="targetReturn">Targeted annual return (%)</label>
+              <label htmlFor="targetReturn">Target annual return (%)</label>
               <input
                 className="field num"
                 id="targetReturn"
@@ -510,7 +510,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
             <input className="field num" id="maxWeight" max={100} min={0} onChange={(event) => patchConstraints({ maxWeightPct: Number(event.target.value) })} step={0.5} type="number" value={request.constraints.maxWeightPct} />
           </div>
           <div className="form-field">
-            <label htmlFor="groupConstraints">Group Constraints</label>
+            <label htmlFor="groupConstraints">Group constraints</label>
             <select className="field" id="groupConstraints" onChange={(event) => patchConstraints({ groupConstraintsEnabled: event.target.value === "true" })} value={String(request.constraints.groupConstraintsEnabled)}>
               <option value="false">No</option>
               <option value="true">Yes</option>
@@ -535,7 +535,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           </div>
         </div>
         {!request.constraints.longOnly ? (
-          <p className="field-hint">Long-only is off -- set a fund's Min % below 0 in the Portfolio step to permit a short position for that fund.</p>
+          <p className="field-hint">Long-only is off — set a fund's Min % below 0 in the Portfolio step to permit a short position for that fund.</p>
         ) : null}
 
         {request.constraints.groupConstraintsEnabled ? (
@@ -563,7 +563,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
         <div className="section-title">Evaluation &amp; comparison</div>
         <div className="form-grid">
           <div className="form-field">
-            <label htmlFor="riskFreeRate">Risk-free rate (% / yr)</label>
+            <label htmlFor="riskFreeRate">Risk-free rate (%/yr)</label>
             <input className="field num" id="riskFreeRate" min={0} onChange={(event) => patchConstraints({ riskFreeRatePct: Number(event.target.value) })} step={0.1} type="number" value={request.constraints.riskFreeRatePct} />
           </div>
           <div className="form-field">
@@ -626,7 +626,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
               </select>
             </div>
             <div className="form-field">
-              <label htmlFor="compareAgainst">Compared Allocation</label>
+              <label htmlFor="compareAgainst">Compare against</label>
               <select className="field" id="compareAgainst" onChange={(event) => patchConstraints({ compareAgainst: event.target.value as CompareAgainst })} value={request.constraints.compareAgainst}>
                 <option value="none">None</option>
                 <option value="current">Your Current Portfolio</option>
@@ -711,7 +711,7 @@ function BlackLittermanCard({
       </div>
 
       <div className="section-title" style={{ marginTop: 20 }}>1. Market equilibrium returns (&Pi;)</div>
-      <p className="field-hint">What the model already implies for each fund before any view is applied -- set your views below relative to these, not blind.</p>
+      <p className="field-hint">What the model already implies for each fund before any view is applied — set your views below relative to these figures.</p>
       <p className="field-hint">Illustrative preview only: these are client-side placeholder figures for anchoring your views. Running the optimization computes the real equilibrium returns server-side from actual NAV history, and the Results tab reports those.</p>
       <div className="tableScroller">
         <table>

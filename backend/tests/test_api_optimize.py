@@ -148,3 +148,47 @@ def test_unexpected_exception_is_translated_to_coded_server_error():
             response = client.post("/api/optimize", json=_valid_optimize_payload())
         assert response.status_code == 500
         assert response.json()["code"] == ErrorCode.INTERNAL_ERROR
+
+
+def test_successful_optimization_gets_a_persisted_run_url(monkeypatch, tmp_path):
+    """A successful optimize response must be reloadable by its run id.
+
+    The optimizer itself is mocked here so this test covers the API/storage
+    seam without depending on a local riskfolio solver or NAV cache.
+    """
+    from backend.app.api import optimize as optimize_module
+
+    monkeypatch.setattr(optimize_module, "RUNS_DIR", tmp_path)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    class FakeOptimizeResult:
+        def model_dump(self, **_kwargs):
+            return {"feasibility": "ok", "generatedAt": "2026-08-12T00:00:00Z"}
+
+    with patch("backend.app.api.optimize.run_optimize", return_value=FakeOptimizeResult()):
+        created = client.post("/api/optimize", json=_valid_optimize_payload())
+
+    assert created.status_code == 200
+    body = created.json()
+    assert body["runId"].startswith("run_")
+    assert body["createdAt"]
+    assert body["dataSource"] == "sec_open_data"
+    assert (tmp_path / body["runId"] / "request.json").is_file()
+    assert (tmp_path / body["runId"] / "result.json").is_file()
+
+    loaded = client.get(f"/api/optimize/{body['runId']}")
+    assert loaded.status_code == 200
+    assert loaded.json()["runId"] == body["runId"]
+    assert loaded.json()["request"]["funds"][0]["projId"] == "A"
+
+
+def test_unknown_optimization_run_returns_run_not_found(monkeypatch, tmp_path):
+    from backend.app.api import optimize as optimize_module
+
+    monkeypatch.setattr(optimize_module, "RUNS_DIR", tmp_path)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.get("/api/optimize/run_does_not_exist")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == ErrorCode.RUN_NOT_FOUND

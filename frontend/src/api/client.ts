@@ -1,11 +1,12 @@
 import type { BacktestRequest, BacktestResult, DataStatus, SecFund } from "../types/backtest";
-import type { OptimizeRequest, OptimizeResult } from "../types/optimize";
+import type { OptimizeRequest, OptimizeResult, OptimizeRunResult } from "../types/optimize";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export function assertSecOnly(result: unknown) {
-  const data = result as { data_source?: string };
-  if (data.data_source && data.data_source !== "sec_open_data") {
+  const data = result as { data_source?: string; dataSource?: string };
+  const source = data.data_source ?? data.dataSource;
+  if (source && source !== "sec_open_data") {
     throw new Error("Production app accepts SEC Open Data results only.");
   }
 }
@@ -77,4 +78,8 @@ export async function runOptimize(payload: OptimizeRequest): Promise<OptimizeRes
     method: "POST",
     body: JSON.stringify(payload)
   });
+}
+
+export async function fetchOptimizeByRunId(runId: string): Promise<OptimizeRunResult> {
+  return requestJson<OptimizeRunResult>(`/api/optimize/${encodeURIComponent(runId)}`);
 }

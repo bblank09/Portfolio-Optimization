@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchFunds, fetchTestableRange, runOptimize } from "../api/client";
+import { fetchDataStatus, fetchFunds, fetchOptimizeByRunId, fetchTestableRange, runOptimize } from "../api/client";
 import { OptimizeAssumptionsStep } from "../components/OptimizeAssumptionsStep";
 import { OptimizeResults } from "../components/OptimizeResults";
 import { PortfolioStep } from "../components/PortfolioStep";
@@ -67,11 +67,9 @@ const initialRequest: OptimizeRequest = {
   }
 };
 
-// POST /api/optimize doesn't persist a run_id (unlike POST /api/backtests),
-// so there's no server-issued id to put in a shareable URL the way the
-// sibling backtester's copyShareLink does. Instead, a shareable link here
-// encodes the request itself (funds reduced to proj_ids) -- reloading it
-// re-submits the identical request to the real optimizer.
+// Keep the old request-in-URL format readable so links copied before persisted
+// optimization runs were introduced do not break. New runs use the much
+// smaller server-issued ?run=<run_id> URL and load the saved result directly.
 type SharedRequest = Omit<OptimizeRequest, "funds"> & { fundProjIds: string[] };
 
 function encodeShareState(request: OptimizeRequest): string {
@@ -100,6 +98,7 @@ function decodeShareState(raw: string): SharedRequest | null {
 
 export function OptimizeWorkspace() {
   const [funds, setFunds] = useState<SecFund[]>([]);
+  const [navAsOf, setNavAsOf] = useState<string | null>(null);
   const [request, setRequest] = useState<OptimizeRequest>(initialRequest);
   const [result, setResult] = useState<OptimizeResult | null>(null);
   const [error, setError] = useState("");
@@ -120,12 +119,55 @@ export function OptimizeWorkspace() {
       .catch((caught: Error) => setError(caught.message));
   }, []);
 
-  // Restore a shared link (?state=<encoded request>) once funds are loaded
-  // (needed to resolve fundProjIds back into full SecFund objects), then
-  // replay the real optimization and jump straight to Results.
+  useEffect(() => {
+    // Keep the optimizer's data-freshness marker in the same top-bar seam as
+    // the sibling Monte Carlo app. This is best-effort metadata: a missing
+    // status response should never block fund selection or optimization.
+    fetchDataStatus()
+      .then((status) => setNavAsOf(status.nav_as_of))
+      .catch(() => setNavAsOf(null));
+  }, []);
+
+  // Restore a persisted shared run once funds are loaded. The saved request
+  // only carries fund identity fields, so resolve those ids against the live
+  // SEC catalog before hydrating the form. Keep the legacy ?state= path below
+  // for links created by older versions of this page.
   useEffect(() => {
     if (!funds.length) return;
     const url = new URL(window.location.href);
+    const runId = url.searchParams.get("run");
+    if (runId) {
+      let cancelled = false;
+      setLoading(true);
+      setError("");
+      fetchOptimizeByRunId(runId)
+        .then((savedRun) => {
+          if (cancelled) return;
+          const restoredFunds = savedRun.request.funds
+            .map((fund) => funds.find((candidate) => candidate.proj_id === fund.projId))
+            .filter((fund): fund is SecFund => Boolean(fund));
+          if (restoredFunds.length < 2) {
+            setError("Could not restore the shared optimization because one or more funds are no longer in the SEC catalog.");
+            return;
+          }
+          const restoredRequest: OptimizeRequest = { ...savedRun.request, funds: restoredFunds };
+          setRequest(restoredRequest);
+          setResult(savedRun);
+          setUnlockedStep(2);
+          setCurrentStep(2);
+        })
+        .catch((caught: unknown) => {
+          if (cancelled) return;
+          setError(caught instanceof Error ? `Could not load shared optimization "${runId}": ${caught.message}` : `Could not load shared optimization "${runId}".`);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const raw = url.searchParams.get("state");
     if (!raw) return;
     const shared = decodeShareState(raw);
@@ -142,6 +184,7 @@ export function OptimizeWorkspace() {
         .then((restoredResult) => {
           if (cancelled) return;
           setResult(restoredResult);
+          if (restoredResult.runId) replaceRunUrl(restoredResult.runId);
           setUnlockedStep(2);
           setCurrentStep(2);
         })
@@ -314,6 +357,7 @@ export function OptimizeWorkspace() {
     try {
       const optimizeResult = await runOptimize(request);
       setResult(optimizeResult);
+      if (optimizeResult.runId) replaceRunUrl(optimizeResult.runId);
       advanceTo(2);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Optimization failed");
@@ -329,13 +373,29 @@ export function OptimizeWorkspace() {
     setUnlockedStep(0);
     goToStep(0);
     const url = new URL(window.location.href);
+    url.searchParams.delete("run");
+    url.searchParams.delete("state");
+    window.history.replaceState(null, "", url);
+  }
+
+  function replaceRunUrl(runId: string) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("run", runId);
     url.searchParams.delete("state");
     window.history.replaceState(null, "", url);
   }
 
   async function copyShareLink() {
     const url = new URL(window.location.href);
-    url.searchParams.set("state", encodeShareState(request));
+    if (result?.runId) {
+      url.searchParams.set("run", result.runId);
+      url.searchParams.delete("state");
+    } else {
+      // Resilience for a result produced by an older backend during a rolling
+      // deploy: it can still be shared using the legacy request encoding.
+      url.searchParams.set("state", encodeShareState(request));
+      url.searchParams.delete("run");
+    }
     window.history.replaceState(null, "", url);
     try {
       await navigator.clipboard.writeText(url.toString());
@@ -353,6 +413,8 @@ export function OptimizeWorkspace() {
         <div className="brand">
           <img alt="Portfolio Optimization" className="mark" src="/brand/topbar-mark.png" />
           <span>Portfolio Optimization</span>
+          <span className="tag">Risk-aware portfolio construction</span>
+          {navAsOf ? <span className="tag nav-as-of">NAV data as of {formatNavDate(navAsOf)}</span> : null}
         </div>
         <Stepper currentStep={currentStep} onStepClick={goToStep} unlockedStep={unlockedStep} />
         <button className="theme-toggle" onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))} type="button">
@@ -385,18 +447,32 @@ export function OptimizeWorkspace() {
         />
 
         <div className={currentStep === 2 ? "page active" : "page"}>
-          <OptimizeResults compareLabel={COMPARE_LABELS[request.constraints.compareAgainst]} funds={selectedFunds} request={request} result={result} />
+          <OptimizeResults
+            compareLabel={COMPARE_LABELS[request.constraints.compareAgainst]}
+            funds={selectedFunds}
+            onShareLink={copyShareLink}
+            request={request}
+            result={result}
+            shareLinkLabel={linkCopied ? "Link copied" : "Share link"}
+          />
           <div className="actions">
             <button className="btn btn-ghost" onClick={() => goToStep(1)} type="button">&larr; Adjust assumptions</button>
             <button className="btn btn-ghost" onClick={startOver} type="button">Start a new optimization</button>
-            {result ? (
-              <button className="btn btn-ghost" onClick={copyShareLink} type="button">
-                {linkCopied ? "Link copied" : "Copy shareable link"}
-              </button>
-            ) : null}
           </div>
         </div>
       </div>
+
+      <footer className="app-footer">
+        <img alt="Supachok Julaupay signature mark" className="app-footer-mark" src={theme === "dark" ? "/brand/author-logo-dark.png" : "/brand/author-logo-light.png"} />
+        <div className="app-footer-text">
+          <span className="app-footer-name">Supachok Julaupay</span>
+          <a href="https://github.com/bblank09" rel="noreferrer" target="_blank">github.com/bblank09</a>
+          <span className="app-footer-legal">
+            <a href="#">Privacy</a>
+            <a href="#">Terms</a>
+          </span>
+        </div>
+      </footer>
 
       <RunOverlay
         open={loading}
@@ -405,4 +481,10 @@ export function OptimizeWorkspace() {
       />
     </div>
   );
+}
+
+function formatNavDate(isoDate: string): string {
+  const parsed = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return isoDate;
+  return parsed.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 }

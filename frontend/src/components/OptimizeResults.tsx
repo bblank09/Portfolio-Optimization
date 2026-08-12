@@ -1,8 +1,9 @@
-import { AlertTriangle, BarChart3, Download } from "lucide-react";
-import { useId, useState } from "react";
+import { AlertTriangle, BarChart3, Download, Share2 } from "lucide-react";
+import { useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
-import type { SecFund } from "../types/backtest";
+import type { SecFund, TimeSeriesPoint } from "../types/backtest";
 import type { OptimizeRequest, OptimizeResult } from "../types/optimize";
+import { AxisCurve } from "./AxisCurve";
 import { OBJECTIVES } from "./OptimizeAssumptionsStep";
 
 interface Props {
@@ -10,6 +11,8 @@ interface Props {
   funds: SecFund[]; // selected shortlist, for display-name lookups
   compareLabel: string | null;
   request?: OptimizeRequest; // for the Report tab's run_config.json export
+  onShareLink?: () => void;
+  shareLinkLabel?: string;
 }
 
 type ResultTab = "Summary" | "Frontier" | "Weights" | "Performance" | "Rolling" | "Report";
@@ -25,12 +28,14 @@ const fmtNum = (value: number | null | undefined) => (value === null || value ==
 // Same palette PortfolioStep's AllocationDonut uses, so a fund reads as
 // the same color across the Portfolio step and these Results charts.
 const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
-// Monochrome purple ramp, darkest to lightest, for the transition map's
-// stacked bands -- distinct funds still need distinct shades, just all
-// within the same hue instead of the general multi-color PALETTE.
-const PURPLE_SHADES = ["#4c1bb3", "#5b21d6", "#7c4ded", "#a480ee", "#c9b3f5"];
+// Categorical, high-contrast colors for the transition map. This is a
+// composition chart, so hue separation is more useful than a monochrome
+// ramp: adjacent funds remain distinguishable even when their weights are
+// similar or the chart is viewed at a reduced size.
+const TRANSITION_COLORS = ["#2563eb", "#e11d48", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2", "#ea580c", "#4b5563"];
+const STANDARD_CHART = { width: 880, height: 320, left: 70, top: 24, right: 850, bottom: 280 };
 
-export function OptimizeResults({ result, funds, compareLabel, request }: Props) {
+export function OptimizeResults({ result, funds, compareLabel, request, onShareLink, shareLinkLabel }: Props) {
   const [activeTab, setActiveTab] = useState<ResultTab>("Summary");
   const nameOf = (projId: string) => funds.find((f) => f.proj_id === projId)?.display_name ?? projId;
   // compareLabel reflects Constraints' "Compared Allocation" *setting*, not
@@ -72,9 +77,16 @@ export function OptimizeResults({ result, funds, compareLabel, request }: Props)
           <span className="sourceLine">Optimization result</span>
           <h2>{request ? OBJECTIVES.find((o) => o.id === request.goal)?.title ?? "Optimization" : "Optimization"} &middot; {funds.length} funds</h2>
         </div>
-        <button className="secondaryButton" onClick={() => downloadText("optimization-result.json", JSON.stringify(result, null, 2), "application/json")} type="button">
-          <Download size={16} /> Result JSON
-        </button>
+        <div className="resultHeaderActions">
+          {onShareLink ? (
+            <button className="secondaryButton" onClick={onShareLink} type="button">
+              <Share2 size={16} /> {shareLinkLabel ?? "Share link"}
+            </button>
+          ) : null}
+          <button className="secondaryButton" onClick={() => downloadText("optimization-result.json", JSON.stringify(result, null, 2), "application/json")} type="button">
+            <Download size={16} /> Result JSON
+          </button>
+        </div>
       </div>
 
       <nav aria-label="Optimization output tabs" className="resultTabs">
@@ -105,6 +117,21 @@ function niceTicks(min: number, max: number, count = 4): number[] {
   const ticks: number[] = [];
   for (let i = 0; i <= count; i++) ticks.push(min + ((max - min) * i) / count);
   return ticks;
+}
+
+function paddedDomain(values: number[], fraction = 0.08): [number, number] {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min;
+  const padding = span === 0 ? Math.max(Math.abs(max) * fraction, 1) : span * fraction;
+  return [min - padding, max + padding];
+}
+
+function formatAxisPct(value: number, min: number, max: number): string {
+  const span = Math.abs(max - min);
+  const fractionDigits = span < 0.1 ? 2 : span < 1 ? 1 : 0;
+  const rounded = Number(value.toFixed(fractionDigits));
+  return `${(rounded === 0 ? 0 : rounded).toFixed(fractionDigits)}%`;
 }
 
 function YAxisTicks({ min, max, padding, width, height, y, format }: {
@@ -160,11 +187,13 @@ function evenIndexLabels(n: number, count = 5): string[] {
 // this adds a crosshair + floating tooltip without each chart needing its
 // own mouse-tracking code. `xAt` maps a data index to its already-computed
 // screen x; `renderTooltip` returns the title/lines to show for that index.
-function ChartHoverLayer({ n, width, height, padding, xAt, renderTooltip }: {
+function ChartHoverLayer({ n, width, height, padding, top = 0, bottom = height - padding, xAt, renderTooltip }: {
   n: number;
   width: number;
   height: number;
   padding: number;
+  top?: number;
+  bottom?: number;
   xAt: (i: number) => number;
   renderTooltip: (i: number) => { title: string; lines: string[] };
 }) {
@@ -189,22 +218,22 @@ function ChartHoverLayer({ n, width, height, padding, xAt, renderTooltip }: {
   const tx = index !== null ? xAt(index) : 0;
   const boxHeight = tooltip ? 18 + tooltip.lines.length * lineHeight : 0;
   const boxX = Math.min(Math.max(tx - tooltipWidth / 2, 2), width - tooltipWidth - 2);
-  const boxY = Math.min(padding, height - boxHeight - 2);
+  const boxY = Math.min(Math.max(top + 4, 2), height - boxHeight - 2);
 
   return (
     <>
       <rect
         fill="transparent"
-        height={Math.max(height - padding, 0)}
+        height={Math.max(bottom - top, 0)}
         onMouseLeave={() => setIndex(null)}
         onMouseMove={handleMove}
         width={Math.max(width - padding * 2, 0)}
         x={padding}
-        y={0}
+        y={top}
       />
       {index !== null && tooltip ? (
         <g pointerEvents="none">
-          <line stroke="var(--text-tertiary)" strokeDasharray="3,3" x1={tx} x2={tx} y1={padding} y2={height - padding} />
+          <line stroke="var(--text-tertiary)" strokeDasharray="3,3" x1={tx} x2={tx} y1={top} y2={bottom} />
           <g transform={`translate(${boxX}, ${boxY})`}>
             <rect fill="var(--surface)" height={boxHeight} rx={5} stroke="var(--border-strong)" width={tooltipWidth} />
             <text fill="var(--text-primary)" fontSize={11} fontWeight={700} x={9} y={15}>{tooltip.title}</text>
@@ -228,161 +257,50 @@ function downloadText(filename: string, content: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
-// Simple cumulative-growth line chart -- same visual idiom as the other
-// SVG charts in this file (axisChart/gridLine), not the sibling
-// backtester's more elaborate hover-tooltip AxisCurve. Turns a return
-// series into an indexed growth path starting at 100.
+// Turns a return series into an indexed growth path starting at 100, then
+// delegates the rendering to the same AxisCurve used by the Backtest tab.
 function EquityCurveChart({ title, series }: { title: string; series: { label: string; returnsPct: number[]; color: string }[] }) {
-  const width = 640;
-  const height = 240;
-  const padding = 40;
-  const paths = series.map((s) => {
+  const chartSeries = series.map((item) => {
     let value = 100;
-    const points = [value, ...s.returnsPct.map((r) => (value *= 1 + r / 100))];
-    return { ...s, points };
+    const points: TimeSeriesPoint[] = [{ date: "Start", value }];
+    item.returnsPct.forEach((r, index) => {
+      value *= 1 + r / 100;
+      points.push({ date: `Period ${index + 1}`, value });
+    });
+    return { label: item.label, color: item.color, points, valueFormat: (v: number) => v.toFixed(1) };
   });
-  const allValues = paths.flatMap((p) => p.points);
-  if (!allValues.length) return null;
-  const minV = Math.min(...allValues);
-  const maxV = Math.max(...allValues);
-  const n = paths[0]?.points.length ?? 1;
-  const x = (i: number) => padding + (i / Math.max(n - 1, 1)) * (width - padding * 2);
-  const y = (v: number) => height - padding - ((v - minV) / (maxV - minV || 1)) * (height - padding * 2);
+  if (!chartSeries.some((item) => item.points.length)) return null;
+  return <AxisCurve title={title} series={chartSeries} valueFormat={(v) => v.toFixed(1)} />;
+}
 
+// The optimizer receives period returns rather than the backtester's already
+// materialized drawdown_curve. Build the same value-based underwater series,
+// including the initial zero point, then render it through the shared
+// backtest AxisCurve so scale, baseline, area fill, hover, and endpoint
+// treatment stay identical in both products.
+function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
+  if (!returnsPct.length) return null;
+  const points = drawdownCurveFromReturns(returnsPct);
+  const drawdownFormat = (value: number) => `${pct.format(value)}%`;
   return (
-    <section className="chartPanel">
-      <h3>{title}</h3>
-      <div className="chartCanvas">
-        <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
-          <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
-          <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
-          <YAxisTicks format={(v) => v.toFixed(0)} height={height} max={maxV} min={minV} padding={padding} width={width} y={y} />
-          <XAxisTicks labels={evenIndexLabels(n)} padding={padding} width={width} y={height - padding + 14} />
-          {paths.map((p) => (
-            <path
-              d={p.points.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(v)}`).join(" ")}
-              fill="none"
-              key={p.label}
-              stroke={p.color}
-              strokeWidth={2}
-            />
-          ))}
-          <text className="axisText" x={width / 2} y={height - 6}>Period</text>
-          <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Growth of 100</text>
-          <ChartHoverLayer
-            height={height}
-            n={n}
-            padding={padding}
-            renderTooltip={(i) => ({
-              title: `Period ${i + 1}`,
-              lines: paths.map((p) => `${p.label}: ${p.points[i].toFixed(2)}`)
-            })}
-            width={width}
-            xAt={x}
-          />
-        </svg>
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
-        {paths.map((p) => (
-          <div key={p.label} style={{ alignItems: "center", display: "flex", fontSize: 12.5, gap: 6 }}>
-            <span style={{ background: p.color, borderRadius: 2, display: "inline-block", height: 10, width: 10 }} />
-            {p.label} &mdash; ends at {p.points[p.points.length - 1].toFixed(1)}
-          </div>
-        ))}
-      </div>
-    </section>
+    <AxisCurve
+      title="Drawdown path"
+      series={[{ label: "Portfolio drawdown", points, color: "#b42318", area: true, valueFormat: drawdownFormat }]}
+      valueFormat={drawdownFormat}
+    />
   );
 }
 
-// Underwater curve -- the sibling backtester ships a full dedicated
-// Drawdown tab; this project had no visual representation of drawdown at
-// all despite CDaR (Conditional Drawdown-at-Risk) being a selectable risk
-// measure. Same growth-of-100 math as EquityCurveChart, then tracks the
-// running peak and plots (value - peak) / peak as a filled area below 0.
-// Styled after the sibling backtester's AxisCurve "Drawdown path" panel
-// (gradient-filled underwater area, a header badge showing the worst
-// figure at a glance, a legend line, and a min/max/latest stat row under
-// the chart) rather than this file's plainer chart idiom -- ported the
-// backtester's visual language specifically here since drawdown is the
-// one chart both apps show in essentially the same shape.
-function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
-  if (!returnsPct.length) return null;
-  const width = 640;
-  const height = 200;
-  const padding = 40;
-  const gradientId = useId();
+function drawdownCurveFromReturns(returnsPct: number[]): TimeSeriesPoint[] {
   let value = 100;
   let peak = 100;
-  const drawdowns = returnsPct.map((r) => {
+  const points: TimeSeriesPoint[] = [{ date: "Start", value: 0 }];
+  returnsPct.forEach((r, index) => {
     value *= 1 + r / 100;
     peak = Math.max(peak, value);
-    return ((value - peak) / peak) * 100;
+    points.push({ date: `Period ${index + 1}`, value: ((value - peak) / peak) * 100 });
   });
-  const minDd = Math.min(...drawdowns, 0);
-  const n = drawdowns.length;
-  const x = (i: number) => padding + (i / Math.max(n - 1, 1)) * (width - padding * 2);
-  const yZero = padding + 4;
-  const yBottom = height - padding;
-  const y = (dd: number) => (minDd === 0 ? yZero : yZero + (dd / minDd) * (yBottom - yZero));
-  const areaPath = `M ${x(0)} ${yZero} ${drawdowns.map((dd, i) => `L ${x(i)} ${y(dd)}`).join(" ")} L ${x(n - 1)} ${yZero} Z`;
-  const linePath = drawdowns.map((dd, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(dd)}`).join(" ");
-  // Highlight the single worst underwater stretch as a shaded band across
-  // the full chart height -- the general area fill below the line already
-  // shades every drawdown, but the worst one is easy to lose among the
-  // others without something calling it out specifically.
-  const worstPeriod = computeDrawdownPeriods(returnsPct)[0] as DrawdownPeriod | undefined;
-  const worstBandEnd = worstPeriod ? worstPeriod.recoveryIndex ?? n - 1 : 0;
-  const maxDrawdown = minDd;
-  const latest = drawdowns[n - 1];
-
-  return (
-    <section className="chartPanel">
-      <div className="panelHeader compact">
-        <div>
-          <h3>Drawdown</h3>
-          <p>Underwater curve for the optimized portfolio's realized return series</p>
-        </div>
-        <span className="badge warn">Max {pct.format(maxDrawdown)}%</span>
-      </div>
-      <div className="chartLegend">
-        <span><i style={{ background: "var(--danger)" }} />Drawdown: {pct.format(latest)}%</span>
-      </div>
-      <div className="chartCanvas">
-        <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
-          <defs>
-            <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="var(--danger)" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="var(--danger)" stopOpacity="0.04" />
-            </linearGradient>
-          </defs>
-          <line className="gridLine" x1={padding} x2={width - padding} y1={yZero} y2={yZero} />
-          <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={yBottom} />
-          <YAxisTicks format={(v) => `${v.toFixed(0)}%`} height={height} max={0} min={minDd} padding={padding} width={width} y={y} />
-          <XAxisTicks labels={evenIndexLabels(n)} padding={padding} width={width} y={yBottom + 14} />
-          {worstPeriod ? (
-            <rect fill="var(--danger)" fillOpacity={0.08} height={yBottom - padding} width={Math.max(x(worstBandEnd) - x(worstPeriod.startIndex), 2)} x={x(worstPeriod.startIndex)} y={padding} />
-          ) : null}
-          <path d={areaPath} fill={`url(#${gradientId})`} stroke="none" />
-          <path d={linePath} fill="none" stroke="var(--danger)" strokeWidth={2} />
-          <text className="axisText" x={width / 2} y={height - 6}>Period</text>
-          <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Drawdown (%)</text>
-          <ChartHoverLayer
-            height={yBottom}
-            n={n}
-            padding={padding}
-            renderTooltip={(i) => ({ title: `Period ${i + 1}`, lines: [`Drawdown: ${pct.format(drawdowns[i])}%`] })}
-            width={width}
-            xAt={x}
-          />
-        </svg>
-      </div>
-      <div className="chartStats">
-        <span>Min (worst): {pct.format(maxDrawdown)}%</span>
-        <span>Max (best): {pct.format(Math.max(...drawdowns, 0))}%</span>
-        <span>Latest: {pct.format(latest)}%</span>
-      </div>
-    </section>
-  );
+  return points;
 }
 
 // PV shows a "possible range of expected annual portfolio returns" note at
@@ -503,7 +421,7 @@ function SummaryTab({ result, nameOf, compareLabel, setActiveTab, request }: { r
       {result.bindingConstraints.length ? (
         <section className="tablePanel">
           <h3>What's actually constraining this result</h3>
-          <p className="field-hint">Which limits the solver actually hit -- distinct from what's merely set in Assumptions. Loosening one of these would change the result; the rest are slack.</p>
+          <p className="field-hint">Which limits the solver actually hit — distinct from what's merely set in Assumptions. Loosening one of these would change the result; the rest are slack.</p>
           <div className="tableScroller">
             <table>
               <tbody>
@@ -612,9 +530,7 @@ function ResultChecklist({ result, compareLabel, request }: { result: OptimizeRe
 }
 
 function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: string) => string }) {
-  const width = 640;
-  const height = 320;
-  const padding = 40;
+  const { width, height, left: padding, top, right, bottom } = STANDARD_CHART;
   // With a small shortlist the global-minimum-variance point and the
   // max-Sharpe (tangency) point can legitimately coincide (the leftmost
   // frontier point is sometimes also the highest-Sharpe one) -- drawing
@@ -652,12 +568,10 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
   });
   const vols = [...result.frontier.map((p) => p.volatilityPct), ...markers.map((m) => m.volatilityPct), ...assetPoints.map((a) => a.volatilityPct)];
   const rets = [...result.frontier.map((p) => p.expectedReturnPct), ...markers.map((m) => m.expectedReturnPct), ...assetPoints.map((a) => a.expectedReturnPct)];
-  const minVol = Math.min(...vols);
-  const maxVol = Math.max(...vols);
-  const minRet = Math.min(...rets);
-  const maxRet = Math.max(...rets);
-  const x = (v: number) => padding + ((v - minVol) / (maxVol - minVol || 1)) * (width - padding * 2);
-  const y = (r: number) => height - padding - ((r - minRet) / (maxRet - minRet || 1)) * (height - padding * 2);
+  const [minVol, maxVol] = paddedDomain(vols);
+  const [minRet, maxRet] = paddedDomain(rets);
+  const x = (v: number) => padding + ((v - minVol) / (maxVol - minVol || 1)) * (right - padding);
+  const y = (r: number) => bottom - ((r - minRet) / (maxRet - minRet || 1)) * (bottom - top);
   const path = result.frontier.map((p, i) => `${i === 0 ? "M" : "L"} ${x(p.volatilityPct)} ${y(p.expectedReturnPct)}`).join(" ");
   const markerColors: Record<string, string> = {
     "Your optimal portfolio": "#5b21d6",
@@ -670,7 +584,7 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
   function colorForMarker(label: string): string {
     if (markerColors[label]) return markerColors[label];
     const match = Object.keys(markerColors).find((key) => label.includes(key));
-    return match ? markerColors[match] : "var(--text)";
+    return match ? markerColors[match] : "var(--text-secondary)";
   }
 
   return (
@@ -678,12 +592,15 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
       <section className="chartPanel">
         <h3>Efficient frontier</h3>
         <div className="chartCanvas">
-          <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
-            <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
-            <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
-            <YAxisTicks format={(v) => `${v.toFixed(1)}%`} height={height} max={maxRet} min={minRet} padding={padding} width={width} y={y} />
-            <XAxisTicks labels={niceTicks(minVol, maxVol).map((v) => `${v.toFixed(1)}%`)} padding={padding} width={width} y={height - padding + 14} />
-            <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} />
+          <svg aria-label="Efficient frontier chart" className="axisChart" preserveAspectRatio="none" role="img" viewBox={`0 0 ${width} ${height}`}>
+            <line className="axisLine" x1={padding} x2={right} y1={bottom} y2={bottom} />
+            <line className="axisLine" x1={padding} x2={padding} y1={top} y2={bottom} />
+            <YAxisTicks format={(v) => formatAxisPct(v, minRet, maxRet)} height={height} max={maxRet} min={minRet} padding={padding} width={width} y={y} />
+            <XAxisTicks labels={niceTicks(minVol, maxVol).map((v) => formatAxisPct(v, minVol, maxVol))} padding={padding} width={width} y={bottom + 18} />
+            <path className="chartLine" d={path} stroke="var(--accent)" />
+            {result.frontier.map((point, index) => (
+              <circle className="frontierPoint" cx={x(point.volatilityPct)} cy={y(point.expectedReturnPct)} key={index} r={2.25} />
+            ))}
             {assetPoints.map((a, index) => (
               <g key={a.id}>
                 <circle cx={x(a.volatilityPct)} cy={y(a.expectedReturnPct)} fill={PALETTE[index % PALETTE.length]} r={4} stroke="var(--bg)" strokeWidth={1.5} />
@@ -694,8 +611,9 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
               <circle cx={x(m.volatilityPct)} cy={y(m.expectedReturnPct)} fill={colorForMarker(m.label)} key={m.label} r={5} stroke="var(--bg)" strokeWidth={2} />
             ))}
             <text className="axisText" x={width / 2} y={height - 6}>Volatility (%)</text>
-            <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Expected return (%)</text>
+            <text className="axisText" transform={`translate(18, ${height / 2}) rotate(-90)`}>Expected return (%)</text>
             <ChartHoverLayer
+              bottom={bottom}
               height={height}
               n={result.frontier.length}
               padding={padding}
@@ -703,6 +621,7 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
                 const p = result.frontier[i];
                 return { title: `Point ${i + 1}`, lines: [`Vol: ${pct.format(p.volatilityPct)}%`, `Return: ${pct.format(p.expectedReturnPct)}%`, `Sharpe: ${p.sharpe}`] };
               }}
+              top={top}
               width={width}
               xAt={(i) => x(result.frontier[i].volatilityPct)}
             />
@@ -761,7 +680,7 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
       </section>
       <section className="chartPanel">
         <h3>Correlation matrix</h3>
-        <p className="field-hint">Same pairwise correlations as the table above, laid out as a grid so clusters of highly correlated funds -- the ones giving the least diversification benefit -- are visible at a glance.</p>
+        <p className="field-hint">Same pairwise correlations as the table above, laid out as a grid so clusters of highly correlated funds — the ones giving the least diversification benefit — are visible at a glance.</p>
         <CorrelationMatrix nameOf={nameOf} result={result} />
       </section>
       <section className="tablePanel compactTable">
@@ -797,9 +716,7 @@ function FrontierTab({ result, nameOf }: { result: OptimizeResult; nameOf: (id: 
 // point / risk level), not just the endpoint allocation -- confirmed live
 // this session, previously spec'd in docs/mock-ui-spec.md but not built.
 function TransitionMap({ result, nameOf }: { result: OptimizeResult; nameOf: (id: string) => string }) {
-  const width = 640;
-  const height = 260;
-  const padding = 40;
+  const { width, height, left: padding, top, right, bottom } = STANDARD_CHART;
   const ids = result.assetSummary.map((row) => row.projId);
   const n = result.frontier.length;
   if (!n || !ids.length) return null;
@@ -818,34 +735,35 @@ function TransitionMap({ result, nameOf }: { result: OptimizeResult; nameOf: (id
   });
 
   function bandPath(fundIndex: number): string {
-    const top = result.frontier.map((_, pointIndex) => {
+    const topPoints = result.frontier.map((_, pointIndex) => {
       const x = padding + stepX * pointIndex;
-      const y = height - padding - (stacks[pointIndex][fundIndex].to / 100) * (height - padding * 2);
+      const y = bottom - (stacks[pointIndex][fundIndex].to / 100) * (bottom - top);
       return `${x},${y}`;
     });
-    const bottom = result.frontier.map((_, pointIndex) => {
+    const bottomPoints = result.frontier.map((_, pointIndex) => {
       const x = padding + stepX * pointIndex;
-      const y = height - padding - (stacks[pointIndex][fundIndex].from / 100) * (height - padding * 2);
+      const y = bottom - (stacks[pointIndex][fundIndex].from / 100) * (bottom - top);
       return `${x},${y}`;
     }).reverse();
-    return `M${top.join(" L")} L${bottom.join(" L")} Z`;
+    return `M${topPoints.join(" L")} L${bottomPoints.join(" L")} Z`;
   }
 
   return (
     <section className="chartPanel">
       <h3>Efficient frontier transition map</h3>
       <div className="chartCanvas">
-        <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
-          <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
-          <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
-          <YAxisTicks format={(v) => `${v.toFixed(0)}%`} height={height} max={100} min={0} padding={padding} width={width} y={(v) => height - padding - (v / 100) * (height - padding * 2)} />
-          <XAxisTicks labels={evenIndexLabels(n)} padding={padding} width={width} y={height - padding + 14} />
+        <svg aria-label="Efficient frontier transition map" className="axisChart" preserveAspectRatio="none" role="img" viewBox={`0 0 ${width} ${height}`}>
+          <line className="axisLine" x1={padding} x2={right} y1={bottom} y2={bottom} />
+          <line className="axisLine" x1={padding} x2={padding} y1={top} y2={bottom} />
+          <YAxisTicks format={(v) => `${v.toFixed(0)}%`} height={height} max={100} min={0} padding={padding} width={width} y={(v) => bottom - (v / 100) * (bottom - top)} />
+          <XAxisTicks labels={evenIndexLabels(n)} padding={padding} width={width} y={bottom + 18} />
           {ids.map((id, index) => (
-            <path d={bandPath(index)} fill={PURPLE_SHADES[index % PURPLE_SHADES.length]} fillOpacity={0.9} key={id} stroke="var(--bg)" strokeWidth={0.5} />
+            <path className="transitionBand" d={bandPath(index)} fill={TRANSITION_COLORS[index % TRANSITION_COLORS.length]} fillOpacity={0.9} key={id} stroke="var(--surface)" strokeWidth={0.75} />
           ))}
           <text className="axisText" x={width / 2} y={height - 8}>Frontier point (low to high risk)</text>
           <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Allocation (%)</text>
           <ChartHoverLayer
+            bottom={bottom}
             height={height}
             n={n}
             padding={padding}
@@ -853,17 +771,18 @@ function TransitionMap({ result, nameOf }: { result: OptimizeResult; nameOf: (id
               title: `Point ${i + 1}`,
               lines: ids.map((id, index) => `${nameOf(id)}: ${pct.format(stacks[i][index].to - stacks[i][index].from)}%`)
             })}
+            top={top}
             width={width}
             xAt={(i) => padding + stepX * i}
           />
         </svg>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
+      <div className="chartLegend chartLegendBlock">
         {ids.map((id, index) => (
-          <div key={id} style={{ alignItems: "center", display: "flex", fontSize: 12.5, gap: 6 }}>
-            <span style={{ background: PURPLE_SHADES[index % PURPLE_SHADES.length], borderRadius: 2, display: "inline-block", height: 10, width: 10 }} />
+          <span key={id}>
+            <i className="legendSquare" style={{ background: TRANSITION_COLORS[index % TRANSITION_COLORS.length] }} />
             {nameOf(id)}
-          </div>
+          </span>
         ))}
       </div>
     </section>
@@ -970,7 +889,7 @@ function TradeListPanel({ result }: { result: OptimizeResult }) {
   return (
     <section className="tablePanel">
       <div className="panelHeader">
-        <h3>Trade list -- current vs. optimal</h3>
+        <h3>Trade list — current vs. optimal</h3>
         <span className="pill">{pct.format(result.totalTurnoverPct)}% one-way turnover</span>
       </div>
       <div className="tableScroller">
@@ -1072,58 +991,74 @@ function WeightsTab({ result, nameOf, compareLabel }: { result: OptimizeResult; 
 // view anywhere before this.
 function ReturnHistogram({ monthlyReturnsPct }: { monthlyReturnsPct: number[] }) {
   if (!monthlyReturnsPct.length) return null;
-  const width = 640;
-  const height = 220;
-  const padding = 40;
-  const min = Math.min(...monthlyReturnsPct);
-  const max = Math.max(...monthlyReturnsPct);
-  const binCount = 12;
-  const binSize = (max - min || 1) / binCount;
-  const bins = new Array(binCount).fill(0);
+  const { width, height, left, top, right, bottom } = STANDARD_CHART;
+  const rawMin = Math.min(...monthlyReturnsPct);
+  const rawMax = Math.max(...monthlyReturnsPct);
+  const domainMin = rawMin === rawMax ? rawMin - 0.5 : rawMin;
+  const domainMax = rawMin === rawMax ? rawMax + 0.5 : rawMax;
+  const binCount = Math.min(12, Math.max(6, Math.ceil(Math.log2(monthlyReturnsPct.length) + 1)));
+  const binSize = (domainMax - domainMin) / binCount;
+  const bins = Array.from({ length: binCount }, () => 0);
   for (const r of monthlyReturnsPct) {
-    const index = Math.min(binCount - 1, Math.floor((r - min) / binSize));
+    const index = Math.min(binCount - 1, Math.max(0, Math.floor((r - domainMin) / binSize)));
     bins[index] += 1;
   }
   const maxCount = Math.max(...bins, 1);
-  const barWidth = (width - padding * 2) / binCount;
+  const barWidth = (right - left) / binCount;
+  const y = (value: number) => bottom - (value / maxCount) * (bottom - top);
+  const zeroX = domainMin <= 0 && domainMax >= 0
+    ? left + ((0 - domainMin) / (domainMax - domainMin)) * (right - left)
+    : null;
 
   return (
     <section className="chartPanel">
       <h3>Monthly return distribution</h3>
+      <div className="chartLegend chartLegendBlock">
+        <span><i className="legendSquare" style={{ background: "var(--danger)" }} />Loss periods</span>
+        <span><i className="legendSquare" style={{ background: "var(--accent)" }} />Gain periods</span>
+        <span className="chartMeta">{monthlyReturnsPct.length} observations · {binCount} bins</span>
+      </div>
       <div className="chartCanvas">
-        <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
-          <line className="gridLine" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
-          <YAxisTicks format={(v) => v.toFixed(0)} height={height} max={maxCount} min={0} padding={padding} width={width} y={(v) => height - padding - (v / maxCount) * (height - padding * 2)} />
-          <XAxisTicks labels={niceTicks(min, max).map((v) => `${v.toFixed(1)}%`)} padding={padding} width={width} y={height - padding + 14} />
+        <svg aria-label="Monthly return distribution histogram" className="axisChart" preserveAspectRatio="none" role="img" viewBox={`0 0 ${width} ${height}`}>
+          <line className="axisLine" x1={left} x2={right} y1={bottom} y2={bottom} />
+          <line className="axisLine" x1={left} x2={left} y1={top} y2={bottom} />
+          <YAxisTicks format={(v) => String(Math.round(v))} height={height} max={maxCount} min={0} padding={left} width={width} y={y} />
+          <XAxisTicks labels={niceTicks(domainMin, domainMax).map((v) => formatAxisPct(v, domainMin, domainMax))} padding={left} width={width} y={bottom + 18} />
+          {zeroX !== null ? <line className="zeroLine vertical" x1={zeroX} x2={zeroX} y1={top} y2={bottom} /> : null}
           {bins.map((count, index) => {
-            const barHeight = (count / maxCount) * (height - padding * 2);
-            const x = padding + index * barWidth;
-            const binStart = min + index * binSize;
+            const barHeight = (count / maxCount) * (bottom - top);
+            const x = left + index * barWidth + 2;
+            const binStart = domainMin + index * binSize;
+            const binEnd = binStart + binSize;
             const isNegative = binStart < 0;
             return (
               <rect
+                className="histBarSvg"
                 fill={isNegative ? "var(--danger)" : "var(--accent)"}
-                fillOpacity={0.85}
+                fillOpacity={0.88}
                 height={barHeight}
                 key={index}
-                width={barWidth - 2}
+                width={Math.max(barWidth - 4, 1)}
                 x={x}
-                y={height - padding - barHeight}
-              />
+                y={bottom - barHeight}
+              ><title>{`${formatAxisPct(binStart, domainMin, domainMax)} to ${formatAxisPct(binEnd, domainMin, domainMax)}: ${count} observations`}</title></rect>
             );
           })}
           <text className="axisText" x={width / 2} y={height - 6}>Monthly return (%)</text>
+          <text className="axisText" transform={`translate(18, ${height / 2}) rotate(-90)`}>Observations</text>
           <ChartHoverLayer
+            bottom={bottom}
             height={height}
             n={binCount}
-            padding={padding}
+            padding={left}
             renderTooltip={(i) => {
-              const binStart = min + i * binSize;
+              const binStart = domainMin + i * binSize;
               const binEnd = binStart + binSize;
-              return { title: `${pct.format(binStart)}% to ${pct.format(binEnd)}%`, lines: [`${bins[i]} period${bins[i] === 1 ? "" : "s"}`] };
+              return { title: `${formatAxisPct(binStart, domainMin, domainMax)} to ${formatAxisPct(binEnd, domainMin, domainMax)}`, lines: [`${bins[i]} observation${bins[i] === 1 ? "" : "s"}`] };
             }}
+            top={top}
             width={width}
-            xAt={(i) => padding + i * barWidth + barWidth / 2}
+            xAt={(i) => left + i * barWidth + barWidth / 2}
           />
         </svg>
       </div>
@@ -1293,49 +1228,18 @@ function PerformanceTab({ result }: { result: OptimizeResult }) {
   );
 }
 
-// Rolling line chart for a single non-return-indexed series -- realizedSharpe
-// per fold doesn't compound like a return series does, so this plots the
-// raw values directly instead of reusing EquityCurveChart's growth-of-100 math.
+// Rolling Sharpe is a raw fold-by-fold series, so it uses the shared curve
+// renderer directly rather than compounding values like a growth chart.
 function RollingSharpeChart({ rolling }: { rolling: OptimizeResult["rolling"] }) {
   if (!rolling.length) return null;
-  const width = 640;
-  const height = 200;
-  const padding = 40;
-  const values = rolling.map((f) => f.realizedSharpe);
-  const minV = Math.min(...values, 0);
-  const maxV = Math.max(...values, 0);
-  const n = values.length;
-  const x = (i: number) => padding + (i / Math.max(n - 1, 1)) * (width - padding * 2);
-  const y = (v: number) => height - padding - ((v - minV) / (maxV - minV || 1)) * (height - padding * 2);
-  const path = values.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(v)}`).join(" ");
-  const tickCount = Math.min(5, n);
-  const tickLabels = Array.from(new Set(Array.from({ length: tickCount }, (_, i) => {
-    const idx = tickCount > 1 ? Math.round((i / (tickCount - 1)) * (n - 1)) : 0;
-    return rolling[idx].periodLabel;
-  })));
+  const points: TimeSeriesPoint[] = rolling.map((fold) => ({ date: fold.periodLabel, value: fold.realizedSharpe }));
   return (
-    <section className="chartPanel">
-      <h3>Rolling Sharpe across folds</h3>
-      <div className="chartCanvas">
-        <svg className="axisChart" viewBox={`0 0 ${width} ${height}`}>
-          <line className="gridLine" x1={padding} x2={width - padding} y1={y(0)} y2={y(0)} />
-          <line className="gridLine" x1={padding} x2={padding} y1={padding} y2={height - padding} />
-          <YAxisTicks format={(v) => v.toFixed(2)} height={height} max={maxV} min={minV} padding={padding} width={width} y={y} />
-          <XAxisTicks labels={tickLabels} padding={padding} width={width} y={height - padding + 14} />
-          <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} />
-          <text className="axisText" x={width / 2} y={height - 6}>Fold</text>
-          <text className="axisText" transform={`translate(12, ${height / 2}) rotate(-90)`}>Realized Sharpe</text>
-          <ChartHoverLayer
-            height={height}
-            n={n}
-            padding={padding}
-            renderTooltip={(i) => ({ title: rolling[i].periodLabel, lines: [`Sharpe: ${values[i].toFixed(2)}`] })}
-            width={width}
-            xAt={x}
-          />
-        </svg>
-      </div>
-    </section>
+    <AxisCurve
+      includeZero
+      title="Rolling Sharpe across folds"
+      series={[{ label: "Realized Sharpe", points, color: "var(--accent)", valueFormat: (v) => v.toFixed(2) }]}
+      valueFormat={(v) => v.toFixed(2)}
+    />
   );
 }
 

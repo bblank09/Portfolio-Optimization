@@ -49,10 +49,11 @@ from backend.app.optimizer.solvers import RM_CODES, _build_portfolio
 
 logger = logging.getLogger("app.optimizer.frontier")
 
-# Two frontier points closer than this in BOTH volatility and expected return
-# are the same point as far as the chart is concerned (values are reported
-# rounded to 2 decimals anyway).
-_POINT_TOLERANCE = 0.005
+# The chart keeps sub-basis-point geometry so a narrow volatility range does
+# not collapse into a staircase after rounding. Only points that are truly
+# numerically identical are deduplicated; the UI formats them to two decimal
+# places when presenting labels and tables.
+_POINT_TOLERANCE = 0.00005
 
 
 def _portfolio_stats(weights: dict[str, float], mu: pd.Series, sigma: pd.DataFrame) -> tuple[float, float]:
@@ -74,10 +75,10 @@ def build_frontier(
     mu: pd.Series,
     sigma: pd.DataFrame,
     returns: pd.DataFrame,
-    points: int = 24,
+    points: int = 80,
 ) -> list[dict]:
     """Sweep riskfolio-lib's real efficient frontier for the request's
-    selected risk measure and return 24 points, each with weights and
+    selected risk measure and return 80 points, each with weights and
     stats derived from those same weights (see module docstring)."""
     # apply_goal_targets=False: the sweep needs an UNCONSTRAINED portfolio.
     # See the comment at that flag in solvers._build_portfolio -- inheriting
@@ -107,10 +108,13 @@ def build_frontier(
         sharpe = (expected_return - request.constraints.risk_free_rate_pct) / volatility if volatility > 0 else 0.0
         result.append(
             {
-                "volatilityPct": round(volatility, 2),
-                "expectedReturnPct": round(expected_return, 2),
-                "sharpe": round(sharpe, 3),
-                "weights": {k: round(v, 2) for k, v in weights.items()},
+                # Keep analytical precision in the response. Consumers can
+                # format for display, but rounding here makes a narrow
+                # frontier (e.g. 19.18% to 19.26% volatility) visibly jagged.
+                "volatilityPct": round(volatility, 6),
+                "expectedReturnPct": round(expected_return, 6),
+                "sharpe": round(sharpe, 6),
+                "weights": {k: round(v, 6) for k, v in weights.items()},
             }
         )
     return _dedupe_points(result, requested=points)
@@ -121,7 +125,7 @@ def _dedupe_points(result: list[dict], *, requested: int) -> list[dict]:
 
     A near-degenerate fund set (e.g. two funds with correlation ~1) makes
     riskfolio return `points` rows that are all the same portfolio. Returning
-    24 stacked duplicates presents a collapsed frontier as if it were a real
+    a stack of duplicates presents a collapsed frontier as if it were a real
     curve. Deduping is the smaller change than inventing a new error code:
     the caller sees a shorter `frontier` list -- one point in the fully
     degenerate case -- and the reduction is logged.

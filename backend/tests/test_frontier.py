@@ -13,7 +13,7 @@ def test_frontier_points_are_consistent_with_their_own_weights():
     mu = returns.mean() * 100 * 12
     sigma = (returns * 100).cov() * 12
     points = build_frontier(request, mu, sigma, returns)
-    assert len(points) == 24
+    assert len(points) == 80
     for point in points:
         # The mock's cited defect: frontier (vol, ret) pairs were computed
         # completely separately from the weights shown for that same
