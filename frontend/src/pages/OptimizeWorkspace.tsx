@@ -450,14 +450,13 @@ export function OptimizeWorkspace() {
           <OptimizeResults
             compareLabel={COMPARE_LABELS[request.constraints.compareAgainst]}
             funds={selectedFunds}
-            onShareLink={copyShareLink}
             request={request}
             result={result}
-            shareLinkLabel={linkCopied ? "Link copied" : "Share link"}
           />
           <div className="actions">
             <button className="btn btn-ghost" onClick={() => goToStep(1)} type="button">&larr; Adjust assumptions</button>
             <button className="btn btn-ghost" onClick={startOver} type="button">Start a new optimization</button>
+            <button className="btn btn-ghost" onClick={copyShareLink} type="button">{linkCopied ? "Link copied" : "Copy shareable link"}</button>
           </div>
         </div>
       </div>
