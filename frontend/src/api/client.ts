@@ -3,6 +3,14 @@ import type { DataFrequency, OptimizeRequest, OptimizeResult, OptimizeRunResult 
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 const REQUEST_TIMEOUT_MS = 30_000;
+// POST /api/optimize runs a real mean-variance/risk-parity/etc. solve plus,
+// when enabled, a rolling-window out-of-sample re-evaluation across many
+// folds -- a legitimately CPU-heavy request that has measured 30-100+s
+// under load (see the CI investigation in frontend/playwright.config.ts).
+// The generic 30s budget above aborts it client-side well before the
+// backend can finish, surfacing a false "request timed out" error even
+// though the backend goes on to complete the run successfully.
+const OPTIMIZE_REQUEST_TIMEOUT_MS = 180_000;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -43,9 +51,9 @@ function extractError(text: string): { message: string; code: string | null } {
   return { message: text, code: null };
 }
 
-async function requestJson<T>(path: string, options?: RequestInit): Promise<T> {
+async function requestJson<T>(path: string, options?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
@@ -106,10 +114,11 @@ export async function runBacktest(payload: BacktestRequest): Promise<BacktestRes
 }
 
 export async function runOptimize(payload: OptimizeRequest): Promise<OptimizeResult> {
-  return requestJson<OptimizeResult>("/api/optimize", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+  return requestJson<OptimizeResult>(
+    "/api/optimize",
+    { method: "POST", body: JSON.stringify(payload) },
+    OPTIMIZE_REQUEST_TIMEOUT_MS
+  );
 }
 
 export async function fetchOptimizeByRunId(runId: string): Promise<OptimizeRunResult> {
