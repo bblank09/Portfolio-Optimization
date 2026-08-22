@@ -30,7 +30,12 @@ test("select funds -> set assumptions -> run -> view optimization results", asyn
   // No error banner should be present on a successful run.
   await expect(page.locator(".banner")).toHaveCount(0);
 
-  await expect(page.getByText(/Public SEC data/i)).toBeVisible();
+  // The result must be computed from real cached SEC Open Data, not a mock --
+  // the app's own client-side guard (assertSecOnly) would have thrown before
+  // rendering anything if the API ever returned another data source, but
+  // assert the Report tab's data-provenance text as a second, visible signal.
+  await page.getByRole("tab", { name: "Report", exact: true }).click();
+  await expect(page.getByText(/SEC Open Data/i)).toBeVisible();
 });
 
 test("URL updates with a shareable run id, and reloading it reproduces the result", async ({ page, browser }) => {

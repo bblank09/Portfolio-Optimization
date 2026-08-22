@@ -20,7 +20,12 @@ import { defineConfig, devices } from "@playwright/test";
 // would fail deterministically, not ~1 time in 4-8 runs).
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 30_000,
+  // Must exceed the longest per-assertion wait used in the specs (currently
+  // the 90_000ms wait for a real rolling-window optimization run) -- the
+  // global test timeout fires before an inner locator timeout ever gets the
+  // chance to, so a spec waiting longer than this always fails regardless
+  // of app correctness.
+  timeout: 120_000,
   fullyParallel: false,
   retries: 2,
   reporter: "list",
