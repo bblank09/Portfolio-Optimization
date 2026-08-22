@@ -158,8 +158,41 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--r-pill); border: 2px solid transparent; background-clip: padding-box; }
 
+/* ---------- Ambient background (DarkVeil, react-bits.dev) ---------- */
+/* Fixed behind the whole shell; z-index:-1 sits below the shell's normal-flow
+   content but above the body's own background paint, so it only shows
+   through the gaps -- page margins beyond the centered column, the space
+   around cards -- rather than under the opaque topbar/footer/card surfaces. */
+.app-veil {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.9;
+}
+.app-veil canvas { width: 100%; height: 100%; display: block; }
+
+/* Dark theme: run at full intensity -- the animation reads as designed. */
+:root[data-theme="dark"] .app-veil { opacity: 0.9; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .app-veil { opacity: 0.9; }
+}
+
+/* Light theme: the same purple/violet gradient is too heavy against white
+   surfaces, so it's dialed back and desaturated toward a wash rather than
+   a spotlight. */
+:root[data-theme="light"] .app-veil { opacity: 0.22; filter: saturate(0.75) brightness(1.35); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .app-veil { opacity: 0.22; filter: saturate(0.75) brightness(1.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-veil { display: none; }
+}
+
 /* ---------- Shell / top bar ---------- */
-.shell { display: grid; grid-template-rows: auto 1fr; min-height: 100vh; }
+.shell { display: grid; grid-template-rows: auto 1fr; min-height: 100vh; position: relative; z-index: 0; }
 
 .topbar {
   display: flex;
@@ -189,6 +222,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   border-radius: var(--r-pill); color: var(--text-tertiary); font-size: 12.5px; font-weight: 500;
   cursor: pointer; user-select: none; transition: background .15s, color .15s; white-space: nowrap;
 }
+.step { border: 0; background: transparent; font-family: inherit; text-align: left; }
+.step:disabled { cursor: not-allowed; }
 .step .dot {
   width: 18px; height: 18px; border-radius: 50%; background: var(--gray-200); color: var(--text-tertiary);
   display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; flex: none;
@@ -385,7 +420,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .advanced-toggle {
   display: flex; align-items: center; gap: 8px; cursor: pointer;
   font-size: 13px; font-weight: 600; color: var(--text-primary);
-  padding: 10px 0; border-top: 1px solid var(--border); margin-top: 18px;
+  width: 100%; padding: 10px 0; border: 0; border-top: 1px solid var(--border); margin-top: 18px;
+  background: transparent; font-family: inherit; text-align: left;
 }
 .advanced-toggle .chev { transition: transform .15s; color: var(--text-tertiary); display: inline-block; }
 .advanced-toggle.open .chev { transform: rotate(90deg); }
@@ -402,6 +438,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .btn-chip:hover { background: var(--accent-soft); color: var(--text-primary); border-color: var(--accent-soft-border); }
 .field-hint { margin: -2px 0 6px; font-size: 11.5px; color: var(--text-tertiary); line-height: 1.4; }
+.validation-warning { margin: -12px 0 0; color: var(--warn); }
 .field-error { margin-top: 6px; font-size: 11.5px; font-weight: 650; color: var(--danger); }
 .field-static { margin: 0; padding: 0 2px; font-size: 13px; color: var(--text-secondary); height: 38px; display: flex; align-items: center; }
 
@@ -435,6 +472,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 .banner { display: flex; gap: 10px; align-items: flex-start; border-radius: var(--r-md); padding: 12px 14px; font-size: 13px; border: 1px solid var(--warn-soft-border); background: var(--warn-soft); color: var(--warn); }
 .banner .ic { flex: none; margin-top: 1px; }
+.validation-banner strong { display: block; margin-bottom: 4px; }
+.validation-errors { margin: 4px 0 0; padding-left: 18px; }
 
 .footnote { font-size: 11.5px; color: var(--text-tertiary); margin-top: 6px; }
 

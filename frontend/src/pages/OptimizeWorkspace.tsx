@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchDataStatus, fetchFunds, fetchOptimizeByRunId, fetchTestableRange, runOptimize } from "../api/client";
+import DarkVeil from "../components/DarkVeil";
 import { OptimizeAssumptionsStep } from "../components/OptimizeAssumptionsStep";
 import { OptimizeResults } from "../components/OptimizeResults";
 import { PortfolioStep } from "../components/PortfolioStep";
 import { RunOverlay } from "../components/RunOverlay";
 import { Stepper } from "../components/Stepper";
+import { validateOptimizeRequest } from "../lib/optimizeValidation";
 import type { SecFund, SecFundAllocation } from "../types/backtest";
 import { ASSET_GROUP_IDS } from "../types/optimize";
 import type { AssetGroup, AssetGroupId, OptimizeRequest, OptimizeResult } from "../types/optimize";
@@ -106,12 +108,11 @@ export function OptimizeWorkspace() {
   const [currentStep, setCurrentStep] = useState(0);
   const [unlockedStep, setUnlockedStep] = useState(0);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">(() => (localStorage.getItem("po-theme") === "dark" ? "dark" : "light"));
+  const theme = "dark" as const;
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("po-theme", theme);
-  }, [theme]);
+  }, []);
 
   useEffect(() => {
     fetchFunds()
@@ -143,6 +144,9 @@ export function OptimizeWorkspace() {
       fetchOptimizeByRunId(runId)
         .then((savedRun) => {
           if (cancelled) return;
+          if (!savedRun.request || !Array.isArray(savedRun.request.funds)) {
+            throw new Error("This shared optimization is missing its saved request configuration.");
+          }
           const restoredFunds = savedRun.request.funds
             .map((fund) => funds.find((candidate) => candidate.proj_id === fund.projId))
             .filter((fund): fund is SecFund => Boolean(fund));
@@ -223,7 +227,7 @@ export function OptimizeWorkspace() {
       return;
     }
     let ignore = false;
-    fetchTestableRange(selectedProjIds)
+    fetchTestableRange(selectedProjIds, request.dataFrequency)
       .then((range) => {
         if (ignore) return;
         setTestableRange(range);
@@ -249,7 +253,7 @@ export function OptimizeWorkspace() {
       ignore = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjIds.join(",")]);
+  }, [selectedProjIds.join(","), request.dataFrequency]);
 
   function goToStep(index: number) {
     setCurrentStep(index);
@@ -352,6 +356,12 @@ export function OptimizeWorkspace() {
   }
 
   async function submit() {
+    const validationErrors = validateOptimizeRequest(request);
+    if (validationErrors.length) {
+      setError(validationErrors.join(" "));
+      setCurrentStep(1);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -409,17 +419,17 @@ export function OptimizeWorkspace() {
 
   return (
     <div className="shell">
+      <div aria-hidden="true" className="app-veil">
+        <DarkVeil hueShift={342} scanlineFrequency={0.5} speed={1.5} />
+      </div>
       <header className="topbar">
         <div className="brand">
           <img alt="Portfolio Optimization" className="mark" src="/brand/topbar-mark.png" />
-          <span>Portfolio Optimization</span>
+          <span>Portfolio Optimizer</span>
           <span className="tag">Risk-aware portfolio construction</span>
           {navAsOf ? <span className="tag nav-as-of">NAV data as of {formatNavDate(navAsOf)}</span> : null}
         </div>
         <Stepper currentStep={currentStep} onStepClick={goToStep} unlockedStep={unlockedStep} />
-        <button className="theme-toggle" onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))} type="button">
-          Toggle theme
-        </button>
       </header>
 
       <div className="main">
@@ -450,14 +460,13 @@ export function OptimizeWorkspace() {
           <OptimizeResults
             compareLabel={COMPARE_LABELS[request.constraints.compareAgainst]}
             funds={selectedFunds}
-            onShareLink={copyShareLink}
             request={request}
             result={result}
-            shareLinkLabel={linkCopied ? "Link copied" : "Share link"}
           />
           <div className="actions">
             <button className="btn btn-ghost" onClick={() => goToStep(1)} type="button">&larr; Adjust assumptions</button>
             <button className="btn btn-ghost" onClick={startOver} type="button">Start a new optimization</button>
+            <button className="btn btn-ghost" onClick={copyShareLink} type="button">{linkCopied ? "Link copied" : "Copy shareable link"}</button>
           </div>
         </div>
       </div>
@@ -467,10 +476,6 @@ export function OptimizeWorkspace() {
         <div className="app-footer-text">
           <span className="app-footer-name">Supachok Julaupay</span>
           <a href="https://github.com/bblank09" rel="noreferrer" target="_blank">github.com/bblank09</a>
-          <span className="app-footer-legal">
-            <a href="#">Privacy</a>
-            <a href="#">Terms</a>
-          </span>
         </div>
       </footer>
 
