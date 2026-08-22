@@ -52,7 +52,7 @@ def enforce_max_holdings(
     # solve_for_goal (re-running 500 resamples per trimmed fund would be
     # far too expensive, and is out of this parameter's scope).
     weights = initial_weights if initial_weights is not None else solvers.solve_for_goal(request, mu, sigma, returns)
-    held = [pid for pid, w in weights.items() if w > _MIN_HOLDING_PCT]
+    held = [pid for pid, w in weights.items() if abs(w) > _MIN_HOLDING_PCT]
     if len(held) <= max_holdings:
         return weights, None
 
@@ -61,11 +61,11 @@ def enforce_max_holdings(
     dropped: list[str] = []
 
     while True:
-        held = [pid for pid, w in last_good_weights.items() if w > _MIN_HOLDING_PCT]
+        held = [pid for pid, w in last_good_weights.items() if abs(w) > _MIN_HOLDING_PCT]
         if len(held) <= max_holdings:
             break
 
-        smallest = min(held, key=lambda pid: last_good_weights[pid])
+        smallest = min(held, key=lambda pid: abs(last_good_weights[pid]))
         candidate_bounds = dict(current_request.fund_bounds)
         candidate_bounds[smallest] = FundBound(min_weight_pct=0.0, max_weight_pct=0.0)
         candidate_request = current_request.model_copy(update={"fund_bounds": candidate_bounds})

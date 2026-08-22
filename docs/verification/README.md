@@ -1,4 +1,8 @@
-# Manual Verification Sample — Phase 4.3/4.4
+# Historical Parent-Backtester Verification Sample — Phase 4.3/4.4
+
+> This folder verifies the sibling cashflow/backtesting product. It is retained
+> as a parent-product reference and is not the current optimizer's verification
+> source. Current optimizer verification lives in `docs/manual-verification-2026-08-11.md`.
 
 This folder holds the real backtest runs used for the manual Excel
 cross-check in item 4.4 (calculate every metric independently in Excel,

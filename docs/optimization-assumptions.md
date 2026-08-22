@@ -1,8 +1,10 @@
 # Optimization Assumptions & Methodology
 
-Status: **decided, not yet implemented.** This is the Phase 1–3 output of forking this
-project from `Backtest Portfolio Webull:SEC OPENAI`. It records what will be built and
-why, sourced against external references, before any optimizer code is written.
+Status: **implemented decision record (updated 2026-08-17).** This document began as
+the Phase 1–3 design output of forking the project from `Backtest Portfolio Webull:
+SEC OPENAI`. The implementation now lives in `backend/app/optimizer/` and
+`frontend/src/`; sections below remain the rationale and assumptions, while the
+code and tests are the source of truth for current behavior.
 
 ## Scope vs. the parent backtester
 
@@ -38,13 +40,19 @@ an independent Python implementation of the same method family plus shrinkage/EW
 spectral covariance estimators and walk-forward validation patterns — useful for
 cross-checking riskfolio-lib's output on synthetic data and for borrowing covariance-
 shrinkage/rolling-window patterns if riskfolio-lib's built-ins are awkward to wire into
-FastAPI. Its code has not yet been read line-by-line; treat as reference only until it is.
+FastAPI. Its code was read line-by-line during the research pass; it remains a reference
+and is not imported by the production optimizer.
 
 ## Default objective (decision, with rationale)
 
-**Default to Black-Litterman or a shrinkage-covariance mean-variance objective, not
-naive mean-variance**, and pair every "optimal weights" result with an out-of-sample
-rolling-window backtest rather than showing only an in-sample efficient-frontier point.
+**Design recommendation:** prefer Black-Litterman or a shrinkage-covariance
+mean-variance objective over naive mean-variance, and pair every "optimal weights"
+result with an out-of-sample rolling-window check rather than showing only an
+in-sample efficient-frontier point. The current UI intentionally keeps the
+PortfolioVisualizer-style defaults from `docs/mock-ui-spec.md` (Max Sharpe,
+historical mean, sample covariance) for transparency and allows the user to switch
+to Black-Litterman or shrinkage explicitly; this is a documented product trade-off,
+not an undocumented implementation mismatch.
 
 Rationale: naive mean-variance optimization is well-documented as highly sensitive to
 estimation error in expected returns and the covariance matrix — Michaud (1989) called
@@ -57,12 +65,29 @@ historically rather than only fitting the sample it was estimated from — this 
 [PortfolioVisualizer's rolling-optimization tool](https://www.portfoliovisualizer.com/rolling-optimization)
 that the user cited as a reference.
 
+## Contract decisions enforced by the implementation
+
+- `black_litterman_posterior` is valid only with the `black_litterman` objective;
+  the Black-Litterman objective requires that return method. The frontend disables
+  the incompatible option and the Pydantic request schema rejects direct API calls
+  that do not satisfy the same rule.
+- The testable-date-range endpoint accepts `frequency=daily|weekly|monthly` and
+  uses the same alignment/completeness rules as the optimizer. Daily windows also
+  require consecutive business-day observations, so a missing weekday cannot be
+  hidden by a monthly preflight range.
+- When every expected return is at or below the requested risk-free rate, direct
+  riskfolio Sharpe optimization has a degenerate negative-excess branch. The solver
+  therefore selects the highest request-risk-adjusted Sharpe point from the same
+  constrained efficient-frontier sweep; if that sweep cannot produce a feasible
+  point, the request fails as `SOLVER_NON_CONVERGENCE` instead of returning a
+  numerically arbitrary interior allocation.
+
 ## Results/output shape to design toward
 
 Based on standard portfolio-optimization tooling (riskfolio-lib, PortfolioVisualizer):
 efficient frontier chart, optimal weights table, expected return/volatility/Sharpe,
 per-asset risk-contribution breakdown, and a rolling out-of-sample performance chart —
-these should shape the future mock-UI "Results" tab design.
+these shape the current optimizer UI's "Results" tab design.
 
 ## Gaps — closure status (updated after a follow-up research pass)
 
@@ -74,12 +99,11 @@ research-synthesizer output — see the file linked at the bottom):
    covariance as the standard academic fix for estimation error, and upgraded Michaud
    & Michaud's resampling paper from an SSRN-abstract citation to a verified
    peer-reviewed reference (85 citations).
-2. **Black-Litterman mechanics** — verified against Wikipedia (High confidence on the
-   qualitative mechanism: implied equilibrium returns + investor views + confidence →
-   posterior return estimate → standard mean-variance optimization). The exact tau/
-   Omega formulas are still not sourced from a primary paper — before coding the BL
-   view-input UI, pull He & Litterman (1999), "The Intuition Behind Black-Litterman
-   Model Portfolios."
+2. **Black-Litterman mechanics** — the implementation and formula reference now record
+   the chosen equilibrium anchor, relative-view convention, tau/Omega approximation,
+   and numerical linear-solve behavior. The UI labels its client-side equilibrium
+   values as illustrative; production values are computed server-side and returned
+   in the result.
 3. **riskfolio-lib vs. PyPortfolioOpt** — now compared, not assumed: riskfolio-lib has
    26 risk measures vs. PyPortfolioOpt's variance-centric scope, plus native
    constraint tooling and HRP/HERC that PyPortfolioOpt lacks. Confirms the choice on a
@@ -88,10 +112,11 @@ research-synthesizer output — see the file linked at the bottom):
    `data/sec/mvp_fund_universe.csv` has ~2,000 funds, longest history ~135-139 months
    (~11.3 years). This *reverses* the original concern — the universe isn't too thin
    for covariance estimation, it's too *wide* to optimize over directly. **Design
-   implication for Phase 4/5: the UI needs a fund shortlist/pre-selection step (or the
-   backend needs a pre-clustering step) before running MVO/BL — optimizing across all
-   2,000 funds simultaneously is neither standard practice nor computationally sane.**
-   This is a new, concrete requirement this closure pass surfaced.
+   implication for the implementation: the UI provides a fund shortlist/pre-selection
+   step and the optimizer request schema caps the selected set at 30 funds; optimizing
+   across all ~2,000 funds simultaneously is neither standard practice nor
+   computationally sane.**
+   This is a concrete requirement enforced by the current contract.
 
 `AssetManagementToolkit`'s code has now been read line-by-line (cloned + its own test
 suite run: 314 passed, 0 failed). Findings:

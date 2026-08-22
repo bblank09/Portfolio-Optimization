@@ -19,10 +19,10 @@ from backend.app.core.limiter import limiter
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("app")
 
-app = FastAPI(title="SEC Open Data Portfolio Backtester", version="0.1.0")
+app = FastAPI(title="SEC Open Data Portfolio Optimizer", version="0.1.0")
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 
 @app.exception_handler(Exception)
@@ -36,7 +36,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     return JSONResponse(status_code=500, content={"detail": "Internal server error", "code": "INTERNAL_ERROR"})
 
 
-app.add_exception_handler(AppHTTPException, app_http_exception_handler)
+app.add_exception_handler(AppHTTPException, app_http_exception_handler)  # type: ignore[arg-type]
 _allowed_origins = settings.allowed_origins_list()
 app.add_middleware(
     CORSMiddleware,

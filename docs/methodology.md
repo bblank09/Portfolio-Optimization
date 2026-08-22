@@ -1,4 +1,10 @@
-# SEC Open Data Portfolio Backtester Methodology
+# SEC Open Data Portfolio Backtester Methodology (parent product)
+
+This is the methodology for the sibling cashflow/backtesting engine. The current
+portfolio optimizer reuses its NAV alignment and metric primitives but has a
+separate request/response contract and optimization methodology documented in
+[`optimization-assumptions.md`](optimization-assumptions.md) and
+[`optimizer-formula-reference.md`](optimizer-formula-reference.md).
 
 This document describes the production backtesting workflow used by the application. The system is intentionally SEC-only: all portfolio return, benchmark, risk, and report outputs are derived from cached SEC Open Data mutual-fund NAV files.
 
@@ -140,4 +146,4 @@ A passing verifier means the selected saved summary metrics can be regenerated b
 
 ## 12. Limitations
 
-This system is historical portfolio backtesting only. It is not a forecast, recommendation engine, tax calculator, broker execution simulator, or suitability assessment. Results depend on SEC NAV availability and the assumptions in the saved request.
+The parent backtesting engine described in this document is historical portfolio backtesting only. It is not a forecast, recommendation engine, tax calculator, broker execution simulator, or suitability assessment. The current fork also contains a separate optimizer documented in [`optimization-assumptions.md`](optimization-assumptions.md); that optimizer is outside this document's scope. Results depend on SEC NAV availability and the assumptions in the saved request.

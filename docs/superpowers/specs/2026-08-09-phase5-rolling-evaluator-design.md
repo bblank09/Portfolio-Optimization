@@ -1,10 +1,11 @@
 # Phase 5 sub-project 2: Rolling Out-of-Sample Evaluator — Design
 
-Status: **approved, not yet implemented.** Second of three ordered sub-projects in Phase
+Status: **implemented (updated 2026-08-17).** This is the historical design record for the second of three ordered sub-projects in Phase
 5 (backend optimizer core → **rolling out-of-sample evaluator** → frontend integration).
 Sub-project 1 (`backend/app/optimizer/`: real riskfolio-lib solvers for all 7
 objectives, frontier, diagnostics, Black-Litterman, `POST /api/optimize`) is complete
-and merged to `main`.
+and are implemented in the current codebase; repository merge state is tracked
+separately.
 
 ## Purpose
 

@@ -72,3 +72,50 @@ def test_max_sharpe_respects_fund_bounds():
     sigma = (returns * 100).cov() * 12
     weights = solve_mean_variance(request, mu, sigma, returns)
     assert weights["A"] <= 20 + 0.5
+
+
+def test_max_sharpe_all_negative_excess_returns_uses_frontier_tangency(monkeypatch):
+    """Riskfolio's Sharpe fallback can return an interior point when every
+    asset has a negative excess return. The optimizer must select the best
+    feasible point from its own frontier instead of returning that fallback.
+    """
+    from backend.app.optimizer import solvers
+
+    request = _two_asset_request("max_sharpe")
+    mu = pd.Series({"A": -4.0, "B": -2.0})
+    sigma = pd.DataFrame([[4.0, 0.0], [0.0, 25.0]], index=["A", "B"], columns=["A", "B"])
+    returns = pd.DataFrame({"A": [-0.01, -0.02], "B": [-0.01, -0.02]})
+
+    class FakePortfolio:
+        rf = request.constraints.risk_free_rate_pct / 100
+
+        def optimization(self, **_kwargs):
+            return pd.DataFrame({"weights": [0.4, 0.6]}, index=["A", "B"])
+
+        def efficient_frontier(self, **_kwargs):
+            return pd.DataFrame(
+                [[1.0, 0.5, 0.0], [0.0, 0.5, 1.0]],
+                index=["A", "B"],
+            )
+
+    monkeypatch.setattr(solvers, "_build_portfolio", lambda *_args, **_kwargs: FakePortfolio())
+
+    weights = solvers.solve_mean_variance(request, mu, sigma, returns)
+
+    assert weights["A"] == pytest.approx(0.0)
+    assert weights["B"] == pytest.approx(100.0)
+
+
+def test_max_sharpe_all_negative_excess_returns_real_frontier_prefers_best_corner():
+    """The real riskfolio frontier must make the same honest choice as the
+    isolated fallback test above, not merely pass through the selection logic.
+    """
+    request = _two_asset_request("max_sharpe")
+    mu = pd.Series({"A": -4.0, "B": -2.0})
+    sigma = pd.DataFrame([[4.0, 0.0], [0.0, 25.0]], index=["A", "B"], columns=["A", "B"])
+    returns = pd.DataFrame({"A": [-0.01, -0.02], "B": [-0.01, -0.02]})
+
+    weights = solve_mean_variance(request, mu, sigma, returns)
+
+    assert weights["A"] == pytest.approx(0.0, abs=0.1)
+    assert weights["B"] == pytest.approx(100.0, abs=0.1)

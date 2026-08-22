@@ -28,7 +28,6 @@ from pathlib import Path
 import pandas as pd
 
 from backend.app.sec.client import SecOpenDataClient
-from backend.app.sec.endpoints import FUND_DAILY_NAV
 from backend.app.sec.normalizers import records
 from scripts.sec_build_mvp_universe import fetch_all_registered_candidates
 from scripts.sec_download_mvp import PAGE_SIZE, fetch_with_retry

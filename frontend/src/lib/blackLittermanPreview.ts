@@ -39,7 +39,17 @@ function requestSeed(request: OptimizeRequest): string {
     request.covarianceMethod,
     request.benchmarkProjId ?? "",
     request.tailConfidence,
-    request.dataFrequency
+    request.dataFrequency,
+    request.blackLitterman?.riskAversion ?? "",
+    request.blackLitterman?.tau ?? "",
+    request.blackLitterman?.benchmarkExpectedReturnPct ?? "",
+    ...(request.blackLitterman?.views ?? []).flatMap((view) => [
+      view.assetProjId1,
+      view.assetProjId2 ?? "",
+      view.viewType,
+      view.adjustedPerformancePct,
+      view.confidence
+    ])
   ].join("|");
 }
 

@@ -111,6 +111,26 @@ def test_mid_window_nav_gap_is_a_hard_error(monkeypatch):
         inputs_module.build_returns_panel(_request())
 
 
+def test_daily_missing_business_day_is_a_hard_error(monkeypatch):
+    """Daily returns must not jump across a missing business-day observation."""
+    from backend.app.optimizer import inputs as inputs_module
+
+    request = _request(
+        dataFrequency="daily",
+        timePeriod={"startDate": "2020-01-02", "endDate": "2020-01-07"},
+    )
+    # 2020-01-06 is a business day between the first and last observations.
+    panel = pd.DataFrame(
+        {"A": [10.0, 10.5, 11.2], "B": [20.0, 20.4, 21.1]},
+        index=pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-07"]),
+    )
+    monkeypatch.setattr(inputs_module, "load_nav_panel", lambda proj_ids: panel)
+    monkeypatch.setattr(inputs_module, "align_nav_panel", lambda nav, frequency: nav)
+
+    with pytest.raises(ValueError, match="INSUFFICIENT_NAV_HISTORY"):
+        inputs_module.build_returns_panel(request)
+
+
 def test_complete_window_builds_returns(monkeypatch):
     """The gap check must not reject a genuinely complete panel."""
     from backend.app.optimizer import inputs as inputs_module
@@ -291,7 +311,7 @@ def test_capm_implied_ignored_for_black_litterman_goal():
         "robustOptimization": False, "useHistoricalReturns": True,
         "useHistoricalVolatility": True, "useHistoricalCorrelations": True,
         "expectedReturnOverrides": {}, "volatilityOverrides": {}, "correlationOverrides": {},
-        "returnMethod": "capm_implied", "covarianceMethod": "sample",
+        "returnMethod": "black_litterman_posterior", "covarianceMethod": "sample",
         "blackLitterman": {
             "riskAversion": 2.5,
             "tau": 0.05,

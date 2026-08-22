@@ -1,12 +1,13 @@
 # Phase 5 sub-project 6 (final): Frontend Integration — Design
 
-Status: **approved, not yet implemented.** Sixth and final sub-project of the
+Status: **implemented (updated 2026-08-17).** Sixth and final sub-project of the
 expanded Phase 5 backend-gap-closing roadmap. Sub-projects 1 (backend
 optimizer core), 2 (rolling out-of-sample evaluator), 3 (comparison
 features), 4 (portfolio constraint completion), and 5 (return-method
-completion + rolling lookback + robust optimization) are complete and merged
-to `main`. Every backend gap identified during the audit chain is now closed.
-This sub-project replaces the frontend's fabricated mock computation with
+completion + rolling lookback + robust optimization) are implemented in the
+current codebase; repository merge state is tracked separately. Every backend
+gap identified during the audit chain is now closed.
+This sub-project replaced the frontend's fabricated mock computation with
 real `POST /api/optimize` calls — the last piece of Phase 5.
 
 ## Why this sub-project exists

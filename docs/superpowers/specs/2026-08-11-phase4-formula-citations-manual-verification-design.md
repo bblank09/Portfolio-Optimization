@@ -1,6 +1,6 @@
 # Phase 4: Formula Citations + Manual Verification — Design
 
-Status: **approved, not yet implemented.**
+Status: **implemented (updated 2026-08-17).** This is the historical design record for the completed formula-citation and manual-verification work.
 
 ## Why this exists
 
@@ -12,7 +12,7 @@ Rolling, Report). Confirmed with the user: this Phase 4 targets **this**
 project (Portfolio Optimization), adapted to its real tabs and its real
 formulas (riskfolio-lib solvers, not backtest cashflow/rebalancing math).
 
-Two gaps exist today:
+The two gaps this phase addressed were:
 
 1. `docs/formula-reference.md` (458 lines, rigorously cited) covers only the
    *backtest engine*'s formulas (TWRR, cashflow/cost accounting, rebalance

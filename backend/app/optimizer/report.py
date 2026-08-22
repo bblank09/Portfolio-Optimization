@@ -4,6 +4,7 @@ presentation logic over inputs.py's outputs -- no NAV loading, solving, or
 math beyond simple vol/correlation derivation from a covariance matrix."""
 
 from datetime import UTC, datetime
+from typing import cast
 
 import pandas as pd
 
@@ -14,14 +15,15 @@ def build_asset_summary(request: OptimizeRequest, mu: pd.Series, sigma: pd.DataF
     rows = []
     for fund in request.funds:
         proj_id = fund.proj_id
-        vol = (sigma.loc[proj_id, proj_id] ** 0.5) if proj_id in sigma.index else 0.0
+        vol = float(cast(float, sigma.loc[proj_id, proj_id])) ** 0.5 if proj_id in sigma.index else 0.0
         bound = request.fund_bounds.get(proj_id)
+        expected_return = float(cast(float, mu.get(proj_id, 0.0)))
         rows.append({
             "projId": proj_id,
             "displayName": fund.display_name,
-            "expectedReturnPct": round(float(mu.get(proj_id, 0.0)), 2),
+            "expectedReturnPct": round(expected_return, 2),
             "volatilityPct": round(float(vol), 2),
-            "sharpe": round(float(mu.get(proj_id, 0.0)) / max(float(vol), 0.5), 3),
+            "sharpe": round(expected_return / max(float(vol), 0.5), 3),
             "minWeightPct": bound.min_weight_pct if bound else request.constraints.min_weight_pct,
             "maxWeightPct": bound.max_weight_pct if bound else request.constraints.max_weight_pct,
         })
@@ -34,8 +36,10 @@ def build_correlations(sigma: pd.DataFrame) -> list[dict]:
     for i in range(len(proj_ids)):
         for j in range(i + 1, len(proj_ids)):
             a, b = proj_ids[i], proj_ids[j]
-            vol_a, vol_b = sigma.loc[a, a] ** 0.5, sigma.loc[b, b] ** 0.5
-            corr = sigma.loc[a, b] / (vol_a * vol_b) if vol_a > 0 and vol_b > 0 else 0.0
+            vol_a = float(cast(float, sigma.loc[a, a])) ** 0.5
+            vol_b = float(cast(float, sigma.loc[b, b])) ** 0.5
+            covariance = float(cast(float, sigma.loc[a, b]))
+            corr = covariance / (vol_a * vol_b) if vol_a > 0 and vol_b > 0 else 0.0
             result.append({"projId1": a, "projId2": b, "correlation": round(float(corr), 2)})
     return result
 

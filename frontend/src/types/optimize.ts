@@ -270,6 +270,10 @@ export interface OptimizeResult {
   // distribution histogram -- riskfolio-lib's own jupyter_report() ships a
   // returns histogram alongside weights/risk-contribution charts.
   monthlyReturnsPct: number[];
+  // Frequency of monthlyReturnsPct. The legacy field name is retained for
+  // persisted-run compatibility, but the UI must not label daily/weekly
+  // observations as monthly.
+  returnFrequency?: DataFrequency;
   // The actual risk measure the user picked in Assumptions (Std Dev, CVaR,
   // CDaR, Semi-Variance), computed for this result -- previously the
   // Performance tab always showed generic Std Dev/Max Drawdown regardless

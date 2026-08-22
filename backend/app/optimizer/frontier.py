@@ -41,6 +41,7 @@ implied to lie on the line.
 import contextlib
 import io
 import logging
+from typing import cast
 
 import pandas as pd
 
@@ -61,11 +62,11 @@ def _portfolio_stats(weights: dict[str, float], mu: pd.Series, sigma: pd.DataFra
     a weights dict -- the single source of truth both build_frontier and
     extract_markers use, so a point's displayed stats can never drift from
     its displayed weights."""
-    expected_return = sum(mu[proj_id] * (w / 100) for proj_id, w in weights.items())
+    expected_return = sum(float(mu[proj_id]) * (float(w) / 100) for proj_id, w in weights.items())
     variance = 0.0
     for i, wi in weights.items():
         for j, wj in weights.items():
-            variance += (wi / 100) * (wj / 100) * (sigma.loc[i, j] / 100 / 100)
+            variance += (float(wi) / 100) * (float(wj) / 100) * (float(cast(float, sigma.loc[i, j])) / 100 / 100)
     volatility = (variance**0.5) * 100
     return expected_return, volatility
 

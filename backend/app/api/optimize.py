@@ -67,16 +67,29 @@ def create_optimization(request: Request, optimize_request: OptimizeRequest) -> 
             code=ErrorCode.NAV_CACHE_MISSING,
         ) from exc
     except ValueError as exc:
-        # inputs.py and solvers.py both raise the bare ErrorCode name as the
-        # message, so this lookup resolves exactly. INSUFFICIENT_NAV_HISTORY
-        # stays the fallback: ValueErrors on this path all originate from
-        # input/NAV validation.
+        # inputs.py and solvers.py raise known ErrorCode names as messages.
+        # An unknown ValueError is an implementation/solver failure, not
+        # evidence of missing NAV history, so do not misclassify it as a 422.
         code_name = str(exc)
-        code = getattr(ErrorCode, code_name, ErrorCode.INSUFFICIENT_NAV_HISTORY)
+        code = getattr(ErrorCode, code_name, None)
+        if code is None:
+            logger.exception("optimize request raised an unknown ValueError: funds=%s", proj_ids)
+            raise AppHTTPException(
+                status_code=500,
+                detail="Optimization failed unexpectedly.",
+                code=ErrorCode.INTERNAL_ERROR,
+            ) from exc
         raise AppHTTPException(status_code=422, detail=code_name.replace("_", " ").title(), code=code) from exc
     except RuntimeError as exc:
         code_name = str(exc)
-        code = getattr(ErrorCode, code_name, ErrorCode.INTERNAL_ERROR)
+        code = getattr(ErrorCode, code_name, None)
+        if code is None:
+            logger.exception("optimize request raised an unknown RuntimeError: funds=%s", proj_ids)
+            raise AppHTTPException(
+                status_code=500,
+                detail="Optimization failed unexpectedly.",
+                code=ErrorCode.INTERNAL_ERROR,
+            ) from exc
         raise AppHTTPException(status_code=422, detail=code_name.replace("_", " ").title(), code=code) from exc
     except AppHTTPException:
         # Already a coded response (e.g. raised from deeper in run_optimize in
@@ -121,12 +134,23 @@ def get_optimization(run_id: str) -> dict[str, Any]:
 
     result = json.loads(result_path.read_text(encoding="utf-8"))
     request_path = run_dir / "request.json"
-    result["request"] = json.loads(request_path.read_text(encoding="utf-8")) if request_path.is_file() else None
+    if not request_path.is_file():
+        logger.error("optimization run is missing its request.json: run_id=%s", run_id)
+        raise AppHTTPException(
+            status_code=500,
+            detail="Optimization run is incomplete.",
+            code=ErrorCode.INTERNAL_ERROR,
+        )
+    result["request"] = json.loads(request_path.read_text(encoding="utf-8"))
     return result
 
 
 def make_run_id() -> str:
-    return f"run_{utc_now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
+    # Share URLs are bearer links: anyone who has the URL can read the saved
+    # result. Keep the human-readable timestamp, but retain the full UUID so
+    # the unpredictable portion is 128 bits rather than an enumerable 32-bit
+    # suffix.
+    return f"run_{utc_now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex}"
 
 
 def utc_now() -> datetime:

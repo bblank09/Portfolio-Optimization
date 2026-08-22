@@ -20,7 +20,8 @@ already complete (FastAPI `POST /api/optimize`, `backend/app/api/optimize.py`).
 ## Global Constraints
 
 - No backend changes in this plan — every backend gap is already closed
-  (sub-projects 1-5, merged to `main`).
+  (sub-projects 1-5 are implemented in the current codebase; repository merge
+  state is tracked separately).
 - `npm run build` (`tsc -b && vite build`) is this frontend's only
   type-check — it must pass with zero errors after every task that touches
   a `.ts`/`.tsx` file.

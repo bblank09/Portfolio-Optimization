@@ -16,6 +16,21 @@ def align_nav_panel(panel: pd.DataFrame, frequency: str = "monthly") -> pd.DataF
     raise ValueError(f"Unsupported NAV alignment frequency: {frequency}")
 
 
+def missing_business_days(index: pd.DatetimeIndex) -> set[str]:
+    """Return business dates absent from a daily NAV index.
+
+    Weekends are not observations and therefore are not considered gaps. This
+    mirrors the backtest engine's daily completeness rule and lets optimizer
+    callers reject a return jump across a missing weekday before pct_change()
+    turns it into an apparently valid observation.
+    """
+    if len(index) < 2:
+        return set()
+    observed = pd.DatetimeIndex(index).normalize().unique()
+    expected = pd.bdate_range(observed.min(), observed.max())
+    return {str(day.date()) for day in expected.difference(observed)}
+
+
 def cap_incomplete_period_label(aligned: pd.DataFrame, source_panel: pd.DataFrame) -> pd.DataFrame:
     if aligned.empty or source_panel.empty:
         return aligned
@@ -115,12 +130,17 @@ def find_longest_complete_window(panel: pd.DataFrame, freq: str = "M") -> tuple[
     if complete.empty:
         return None
 
-    periods = pd.PeriodIndex(complete.index, freq=freq)
     best_start_idx = best_end_idx = None
     best_len = 0
     run_start = 0
-    for i in range(1, len(periods) + 1):
-        boundary = i == len(periods) or periods[i] != periods[i - 1] + 1
+    for i in range(1, len(complete.index) + 1):
+        if i == len(complete.index):
+            boundary = True
+        elif freq == "B":
+            boundary = pd.Timestamp(complete.index[i]) != pd.Timestamp(complete.index[i - 1]) + pd.offsets.BDay()
+        else:
+            periods = pd.PeriodIndex(complete.index[i - 1 : i + 1], freq=freq)
+            boundary = periods[1] != periods[0] + 1
         if not boundary:
             continue
         run_len = i - run_start
@@ -131,7 +151,11 @@ def find_longest_complete_window(panel: pd.DataFrame, freq: str = "M") -> tuple[
 
     if best_start_idx is None:
         return None
-    return (str(pd.Timestamp(complete.index[best_start_idx]).date()), str(pd.Timestamp(complete.index[best_end_idx]).date()))
+    assert best_end_idx is not None
+    return (
+        str(pd.Timestamp(complete.index[best_start_idx]).date()),
+        str(pd.Timestamp(complete.index[best_end_idx]).date()),
+    )
 
 
 def validate_nav_panel(

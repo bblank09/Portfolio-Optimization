@@ -158,7 +158,10 @@ def _resolve_display_name(proj_id: str, request: OptimizeRequest) -> str:
 
 
 def build_benchmark_comparison(
-    request: OptimizeRequest, optimal_weights: dict[str, float], returns: pd.DataFrame
+    request: OptimizeRequest,
+    optimal_weights: dict[str, float],
+    returns: pd.DataFrame,
+    benchmark_returns: pd.Series | None = None,
 ) -> dict | None:
     """None when no benchmark was requested. Otherwise loads the
     benchmark's own return series (inputs.load_benchmark_returns --
@@ -171,7 +174,8 @@ def build_benchmark_comparison(
     if not benchmark_proj_id:
         return None
 
-    benchmark_returns = inputs.load_benchmark_returns(benchmark_proj_id, request)
+    if benchmark_returns is None:
+        benchmark_returns = inputs.load_benchmark_returns(benchmark_proj_id, request)
     portfolio_returns = inputs.portfolio_return_series(returns, optimal_weights)
     ppy = inputs.periods_per_year(request)
 

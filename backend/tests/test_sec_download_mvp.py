@@ -69,6 +69,6 @@ def test_normalize_page_records_keeps_everything_when_no_class_is_designated():
         ]
     }
 
-    valid_rows, issues = normalize_page_records(payload, proj_id="FUND_A", expected_fund_class_name=None)
+    valid_rows, _issues = normalize_page_records(payload, proj_id="FUND_A", expected_fund_class_name=None)
 
     assert len(valid_rows) == 1

@@ -26,6 +26,7 @@ from backend.app.engine import metrics
 from backend.app.optimizer import (
     black_litterman,
     comparison,
+    constraints,
     diagnostics,
     frontier,
     holdings,
@@ -53,6 +54,45 @@ def _calendar_year_returns(period_returns: pd.Series, periods_per_year: int) -> 
             compounded = float(np.prod(1.0 + group.to_numpy(dtype=float)))
             yearly.append((compounded - 1.0) * 100)
     return yearly
+
+
+_COMPARE_LABELS = {
+    "equal_weighted": "Equal weighted",
+    "max_sharpe": "Max Sharpe",
+    "inverse_volatility": "Inverse volatility",
+    "risk_parity": "Risk parity",
+    "current": "Current portfolio",
+}
+
+
+def _performance_summary_column(
+    label: str,
+    weights: dict[str, float],
+    expected_mu: pd.Series,
+    sigma: pd.DataFrame,
+    returns: pd.DataFrame,
+    periods_per_year: int,
+    risk_free_fraction: float,
+) -> dict:
+    portfolio_return, portfolio_vol = frontier._portfolio_stats(weights, expected_mu, sigma)
+    sharpe_ex_ante = (portfolio_return - risk_free_fraction * 100) / portfolio_vol if portfolio_vol > 0 else 0.0
+    period_returns = inputs.portfolio_return_series(returns, weights)
+    growth = (1 + period_returns).cumprod()
+    yearly = _calendar_year_returns(period_returns, periods_per_year)
+    sharpe_ex_post = metrics.sharpe_ratio(period_returns, risk_free_fraction, periods_per_year)
+    sortino = metrics.sortino_ratio(period_returns, risk_free_fraction, periods_per_year)
+    return {
+        "label": label,
+        "cagrPct": round(metrics.annualized_return(period_returns, periods_per_year) * 100, 2),
+        "expectedReturnPct": round(portfolio_return, 2),
+        "stdDevPct": round(portfolio_vol, 2),
+        "bestYearPct": round(max(yearly), 2) if yearly else None,
+        "worstYearPct": round(min(yearly), 2) if yearly else None,
+        "maxDrawdownPct": round(metrics.max_drawdown(growth) * 100, 2) if not growth.empty else None,
+        "sharpeExAnte": round(sharpe_ex_ante, 2),
+        "sharpeExPost": round(sharpe_ex_post, 2) if sharpe_ex_post is not None else None,
+        "sortino": round(sortino, 2) if sortino is not None else None,
+    }
 
 
 def run_optimize(request: OptimizeRequest) -> OptimizeResult:
@@ -96,13 +136,31 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
             "allocation shown is a single-shot solve, not the resampled average."
         )
 
+    benchmark_returns_for_constraints = None
+    if request.constraints.max_tracking_error_pct is not None and request.benchmark_proj_id:
+        benchmark_returns_for_constraints = inputs.load_benchmark_returns(request.benchmark_proj_id, request)
+    unconstrained_weights = optimal_weights
+    optimal_weights = constraints.enforce_portfolio_constraints(
+        request, optimal_weights, returns, benchmark_returns_for_constraints
+    )
+    if optimal_weights != unconstrained_weights:
+        applied = []
+        if request.constraints.max_turnover_pct is not None:
+            applied.append(f"max turnover {request.constraints.max_turnover_pct}%")
+        if request.constraints.max_tracking_error_pct is not None:
+            applied.append(f"max tracking error {request.constraints.max_tracking_error_pct}%")
+        applied_note = f"Continuous constraints enforced: {', '.join(applied)}."
+        constraint_note = f"{constraint_note} {applied_note}" if constraint_note else applied_note
+
     # A rolling-evaluation failure never blocks the primary weights result
     # (design spec). run_rolling_evaluation raises
     # ValueError("INSUFFICIENT_ROLLING_HISTORY") when the window is too
     # short for two folds; letting that propagate would turn a request that
     # solved perfectly well into a 422 with no weights at all.
     try:
-        rolling_folds, rolling_note = rolling.run_rolling_evaluation(request, returns)
+        rolling_folds, rolling_note = rolling.run_rolling_evaluation(
+            request, returns, benchmark_returns_for_constraints
+        )
     except ValueError:
         rolling_folds = []
         rolling_note = (
@@ -111,7 +169,9 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         )
 
     compare_weights, compare_note = comparison.build_comparison_weights(request, original_mu, sigma, returns)
-    benchmark_comparison = comparison.build_benchmark_comparison(request, optimal_weights, returns)
+    benchmark_comparison = comparison.build_benchmark_comparison(
+        request, optimal_weights, returns, benchmark_returns_for_constraints
+    )
 
     compared_risk_value = None
     if compare_weights is not None:
@@ -121,10 +181,9 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
     optimal_marker, gmv_marker, tangency_marker = frontier.extract_markers(frontier_points, optimal_weights, mu, sigma)
 
     trade_list, total_turnover = diagnostics.build_trade_list(request, optimal_weights)
-    findings = diagnostics.binding_constraints(request, optimal_weights)
-
-    portfolio_return, portfolio_vol = frontier._portfolio_stats(optimal_weights, mu, sigma)
-    sharpe = (portfolio_return - request.constraints.risk_free_rate_pct) / portfolio_vol if portfolio_vol > 0 else 0.0
+    findings = diagnostics.binding_constraints(
+        request, optimal_weights, returns, benchmark_returns_for_constraints
+    )
 
     # Realized (ex-post) performance is computed from the portfolio's own
     # periodic return series using backend/app/engine/metrics.py -- the same
@@ -135,24 +194,17 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
     # Shared with rolling.py's per-fold scoring -- one implementation of the
     # weights -> realized series alignment, not two copies free to drift.
     period_returns = inputs.portfolio_return_series(returns, optimal_weights)
-    growth = (1 + period_returns).cumprod()
-    yearly = _calendar_year_returns(period_returns, periods_per_year)
-    sharpe_ex_post = metrics.sharpe_ratio(period_returns, risk_free_fraction, periods_per_year)
-    sortino = metrics.sortino_ratio(period_returns, risk_free_fraction, periods_per_year)
 
-    performance_summary = [{
-        "label": "Optimized",
-        "cagrPct": round(metrics.annualized_return(period_returns, periods_per_year) * 100, 2),
-        # Ex-ante: the mu/Sigma the optimizer actually solved against.
-        "expectedReturnPct": round(portfolio_return, 2),
-        "stdDevPct": round(portfolio_vol, 2),
-        "bestYearPct": round(max(yearly), 2) if yearly else None,
-        "worstYearPct": round(min(yearly), 2) if yearly else None,
-        "maxDrawdownPct": round(metrics.max_drawdown(growth) * 100, 2) if not growth.empty else None,
-        "sharpeExAnte": round(sharpe, 2),
-        "sharpeExPost": round(sharpe_ex_post, 2) if sharpe_ex_post is not None else None,
-        "sortino": round(sortino, 2) if sortino is not None else None,
-    }]
+    performance_summary = [_performance_summary_column(
+        "Optimized", optimal_weights, mu, sigma, returns, periods_per_year, risk_free_fraction
+    )]
+    if compare_weights is not None:
+        compare_label = _COMPARE_LABELS.get(request.constraints.compare_against.value, "Compared portfolio")
+        performance_summary.append(
+            _performance_summary_column(
+                compare_label, compare_weights, original_mu, sigma, returns, periods_per_year, risk_free_fraction
+            )
+        )
 
     realized_risk_value, risk_is_annualized = solvers.realized_risk(
         request, optimal_weights, sigma, returns, periods_per_year
@@ -181,6 +233,7 @@ def run_optimize(request: OptimizeRequest) -> OptimizeResult:
         "rolling": rolling_folds,
         "blackLitterman": bl_result,
         "monthlyReturnsPct": (period_returns * 100).round(2).tolist(),
+        "returnFrequency": request.data_frequency.value,
         "selectedRiskMeasure": {
             "measure": request.risk_measure.value,
             "label": risk_label,

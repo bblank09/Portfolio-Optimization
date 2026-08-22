@@ -4,6 +4,8 @@ import { defineConfig, devices } from "@playwright/test";
 // backend on a single origin -- the same setup used in the real Docker
 // deployment (see backend/app/main.py's static-serving block) -- rather than
 // through Vite's dev server. Run `npm run build` before `npm run test:e2e`.
+// The command also needs a Python environment with the backend dependencies;
+// set PYTHON_BIN when the active `python3` is not that environment.
 //
 // KNOWN FLAKE (documented, not silently retried away): the second test
 // ("URL updates with a shareable run id...") intermittently fails to see
@@ -18,8 +20,21 @@ import { defineConfig, devices } from "@playwright/test";
 // would fail deterministically, not ~1 time in 4-8 runs).
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 30_000,
+  // Must exceed the longest per-assertion wait used in the specs (currently
+  // the 90_000ms wait for a real rolling-window optimization run) -- the
+  // global test timeout fires before an inner locator timeout ever gets the
+  // chance to, so a spec waiting longer than this always fails regardless
+  // of app correctness.
+  timeout: 120_000,
   fullyParallel: false,
+  // The webServer below is a single uvicorn process with no worker pool, so
+  // two Playwright workers running CPU-bound optimization requests at the
+  // same time make the backend thrash: a solve that takes ~15-20s alone
+  // measured 76-107s under concurrent load in CI (see optimize request
+  // duration= log lines), blowing past even generous per-assertion
+  // timeouts. Serializing workers removes the contention rather than
+  // chasing a timeout that would still be flaky under load.
+  workers: 1,
   retries: 2,
   reporter: "list",
   use: {
@@ -33,7 +48,7 @@ export default defineConfig({
     }
   ],
   webServer: {
-    command: "/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8001",
+    command: `${process.env.PYTHON_BIN ?? "python3"} -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8001`,
     url: "http://127.0.0.1:8001/api/health",
     reuseExistingServer: true,
     cwd: "..",

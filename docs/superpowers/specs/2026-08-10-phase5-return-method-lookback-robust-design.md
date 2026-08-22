@@ -1,9 +1,10 @@
 # Phase 5 sub-project 5: Return-Method Completion + Rolling Lookback + Robust Optimization — Design
 
-Status: **approved, not yet implemented.** Fifth of an expanded set of ordered
+Status: **implemented (updated 2026-08-17).** This is the historical design record for the fifth of an expanded set of ordered
 Phase 5 sub-projects. Sub-projects 1 (backend optimizer core), 2 (rolling
 out-of-sample evaluator), 3 (comparison features), and 4 (portfolio
-constraint completion) are complete and merged to `main`. This sub-project
+constraint completion) are implemented in the current codebase; repository
+merge state is tracked separately. This sub-project
 merges what was originally planned as two separate sub-projects (5 and 6)
 into one, per explicit decision — one spec, one implementation plan.
 

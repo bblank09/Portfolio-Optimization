@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 BLUE = Font(color="0000FF")
@@ -188,8 +188,8 @@ for t in periods:
     else:
         sim.cell(row=rows["PeriodPerformance"], column=c, value=f"=({L}{rows['EndingValue']}-{L}{rows['Cashflow']})/{L}{rows['StartValue']}-1")
 
-    for key in rows:
-        cell = sim.cell(row=rows[key], column=c)
+    for key, row in rows.items():
+        cell = sim.cell(row=row, column=c)
         if cell.value is None:
             continue
         if key == "Cashflow" and t == 0:
@@ -476,4 +476,3 @@ chk.column_dimensions["B"].width = 24
 wb.save(OUT_PATH)
 print("Workbook built:", OUT_PATH)
 print("Comparison rows:", hrow + 1, "to", last_data_row)
-

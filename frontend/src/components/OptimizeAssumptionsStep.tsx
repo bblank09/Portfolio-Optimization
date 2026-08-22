@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Play, Plus, Trash2 } from "lucide-react";
 import { estimateEquilibriumReturns } from "../lib/blackLittermanPreview";
+import { validateOptimizeRequest } from "../lib/optimizeValidation";
 import type { SecFund } from "../types/backtest";
 import { ASSET_GROUP_IDS } from "../types/optimize";
 import type {
@@ -88,7 +89,11 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
   const isMinVolatility = request.goal === "min_volatility";
   const isTailRisk = request.riskMeasure === "cvar" || request.riskMeasure === "cdar";
   const selectedFunds = request.funds;
-  const canRun = selectedFunds.length >= 2 && !loading;
+  const validationErrors = validateOptimizeRequest(request);
+  const canRun = validationErrors.length === 0 && !loading;
+  const validationDescription = request.constraints.rollingWindowMode === "trailing"
+    ? `${request.constraints.lookbackPeriodMonths}-month trailing lookback`
+    : "an expanding training window";
 
   function patch(next: Partial<OptimizeRequest>) {
     onChange({ ...request, ...next });
@@ -145,7 +150,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
     // once BL isn't the objective anymore).
     const returnMethod = goal === "black_litterman"
       ? "black_litterman_posterior" as const
-      : wasBlackLitterman
+      : wasBlackLitterman || request.returnMethod === "black_litterman_posterior"
         ? "historical_mean" as const
         : request.returnMethod;
     patch({ goal, blackLitterman, returnMethod });
@@ -346,7 +351,7 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
             >
               <option value="historical_mean">Historical mean</option>
               <option value="capm_implied">CAPM-implied</option>
-              <option value="black_litterman_posterior">Black-Litterman posterior</option>
+              <option disabled={!isBlackLitterman} value="black_litterman_posterior">Black-Litterman posterior</option>
             </select>
           </div>
           <div className="form-field">
@@ -595,10 +600,16 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
           ) : null}
         </div>
 
-        <div className={advancedOpen ? "advanced-toggle open" : "advanced-toggle"} onClick={() => setAdvancedOpen((open) => !open)}>
+        <button
+          aria-controls="advanced-validation-panel"
+          aria-expanded={advancedOpen}
+          className={advancedOpen ? "advanced-toggle open" : "advanced-toggle"}
+          onClick={() => setAdvancedOpen((open) => !open)}
+          type="button"
+        >
           <span className="chev">&#9654;</span> Rolling-window validation &amp; comparison
-        </div>
-        <div className={advancedOpen ? "advanced-body open" : "advanced-body"}>
+        </button>
+        <div className={advancedOpen ? "advanced-body open" : "advanced-body"} id="advanced-validation-panel">
           <div className="form-grid">
             <div className="form-field">
               <label htmlFor="lookback">Lookback period</label>
@@ -642,8 +653,14 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
 
       <div className="review-box">
         Optimizing <b>{selectedFunds.length} funds</b> for <b>{OBJECTIVES.find((o) => o.id === request.goal)?.title}</b> using <b>{RISK_MEASURES.find((m) => m.id === request.riskMeasure)?.label}</b>
-        {request.robustOptimization ? <>, with <b>Monte Carlo robust optimization</b> enabled</> : null}, re-validated every <b>{request.constraints.optimizationFrequency}</b> on a <b>{request.constraints.lookbackPeriodMonths}-month</b> lookback.
+        {request.robustOptimization ? <>, with <b>Monte Carlo robust optimization</b> enabled</> : null}, re-validated every <b>{request.constraints.optimizationFrequency}</b> on <b>{validationDescription}</b>.
       </div>
+
+      {request.dataFrequency === "monthly" && request.constraints.optimizationFrequency === "monthly" ? (
+        <div className="field-hint validation-warning" role="status">
+          Monthly NAV data with monthly validation produces one out-of-sample rebalance per month; use quarterly or annual validation if you want a slower turnover schedule.
+        </div>
+      ) : null}
 
       {selectedFunds.length < 2 ? (
         <div className="card" style={{ display: "grid", gap: 8 }}>
@@ -652,9 +669,21 @@ export function OptimizeAssumptionsStep({ active, request, funds, error, loading
       ) : null}
 
       {error ? (
-        <div className="banner">
+        <div className="banner" role="alert">
           <span className="ic">&#9888;</span>
           <span>{error}</span>
+        </div>
+      ) : null}
+
+      {validationErrors.length ? (
+        <div className="banner validation-banner" role="alert">
+          <span className="ic">&#9888;</span>
+          <div>
+            <strong>Fix these inputs before running:</strong>
+            <ul className="validation-errors">
+              {validationErrors.map((validationError) => <li key={validationError}>{validationError}</li>)}
+            </ul>
+          </div>
         </div>
       ) : null}
 
