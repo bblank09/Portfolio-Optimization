@@ -14,6 +14,9 @@ import { expect, test } from "@playwright/test";
 // renders real fold rows rather than an empty table.
 
 test("rollingWindowMode=trailing round-trips to the optimizer and returns fold data", async ({ page }) => {
+  // Rolling evaluation solves one optimization per fold against the real SEC
+  // cache, so it is intentionally slower than the basic happy path.
+  test.setTimeout(120_000);
   await page.goto("/");
 
   // --- Step 1: Portfolio ---
@@ -47,10 +50,11 @@ test("rollingWindowMode=trailing round-trips to the optimizer and returns fold d
   // --- Step 3: Results ---
   // A real optimization over real SEC NAV data takes a moment; wait for the
   // result itself rather than a fixed sleep.
-  await expect(page.getByRole("button", { name: "Rolling" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Optimization result", { exact: true })).toBeVisible({ timeout: 90_000 });
+  await expect(page.locator('[role="dialog"][aria-labelledby="run-overlay-title"]')).toBeHidden({ timeout: 30_000 });
   await expect(page.locator(".banner")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Rolling" }).click();
+  await page.getByRole("tab", { name: "Rolling", exact: true }).click();
   const foldsPanel = page.locator(".tablePanel", { hasText: "Rolling out-of-sample folds" });
   await expect(foldsPanel).toBeVisible();
   // Non-empty fold data: the trailing-window schedule actually produced

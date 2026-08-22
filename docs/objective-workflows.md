@@ -1,4 +1,10 @@
-# Objective Workflows
+# Objective Workflows (parent backtester reference)
+
+This document describes the sibling cashflow/backtest product, not the current
+portfolio optimizer. For this repository's live optimization workflow, use
+`docs/mock-ui-spec.md`, `docs/optimization-assumptions.md`, and the three-step UI
+(`Portfolio → Assumptions → Results`). The optimizer has no cashflow, withdrawal,
+or order-execution workflow.
 
 The app uses Objective Presets to reduce setup friction while keeping all quant assumptions editable.
 

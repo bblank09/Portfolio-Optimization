@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 
@@ -40,7 +41,7 @@ def migrate_schema(name: str, defaults: dict[str, object]) -> list[str]:
     if not added:
         return []
     for column in added:
-        df[column] = defaults[column]
+        df[column] = cast(Any, defaults[column])
     df.to_parquet(path, index=False)
     return added
 

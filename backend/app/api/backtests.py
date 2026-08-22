@@ -122,7 +122,9 @@ def get_backtest_report(run_id: str) -> str:
 
 
 def make_run_id() -> str:
-    return f"run_{utc_now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
+    # Backtest share URLs are bearer links too; keep the timestamp for
+    # support/debugging but use the full UUID for a non-guessable identifier.
+    return f"run_{utc_now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex}"
 
 
 def utc_now() -> datetime:

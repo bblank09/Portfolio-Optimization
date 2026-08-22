@@ -31,12 +31,11 @@ export function BacktestWorkspace() {
   const [currentStep, setCurrentStep] = useState(0);
   const [unlockedStep, setUnlockedStep] = useState(0);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">(() => (localStorage.getItem("pb-theme") === "dark" ? "dark" : "light"));
+  const theme = "dark" as const;
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("pb-theme", theme);
-  }, [theme]);
+  }, []);
 
   useEffect(() => {
     fetchFunds()
@@ -203,9 +202,6 @@ export function BacktestWorkspace() {
           {navAsOf ? <span className="tag nav-as-of">NAV data as of {formatNavDate(navAsOf)}</span> : null}
         </div>
         <Stepper currentStep={currentStep} unlockedStep={unlockedStep} onStepClick={goToStep} />
-        <button className="theme-toggle" onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))} type="button">
-          Toggle theme
-        </button>
       </header>
 
       <div className="main">

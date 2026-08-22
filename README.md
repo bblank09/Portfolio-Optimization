@@ -47,7 +47,7 @@ This project answers a different question than its parent backtester: *given a u
 
 It is a full-stack application — a FastAPI optimization engine (built on [riskfolio-lib](https://riskfolio-lib.readthedocs.io/en/latest/)) over the same cached SEC Thailand Open Data NAV series as the parent project, and a React/TypeScript dashboard for building a fund universe, choosing an optimization objective and constraints, and inspecting results (efficient frontier, optimal weights, risk contribution breakdown, and rolling out-of-sample performance).
 
-**Status:** fully implemented and merged to `main` — every objective, constraint, and comparison feature described below is wired to the real backend; there is no mock data left anywhere in the app. See [`docs/optimization-assumptions.md`](docs/optimization-assumptions.md) for the underlying decision record and sources.
+**Status:** implemented in the current codebase — every objective, constraint, and comparison feature described below is wired to the real backend; there is no mock data left anywhere in the app. Git commit/merge state is tracked separately in the repository. See [`docs/optimization-assumptions.md`](docs/optimization-assumptions.md) for the underlying decision record and sources.
 
 ## 2. Motivation & Research Question
 
@@ -72,7 +72,7 @@ flowchart LR
     CACHE[("data/sec/normalized/<br/>*.parquet cache")]
     ENGINE["backend/app/engine/<br/>return/risk metrics"]
     OPT["backend/app/optimizer/<br/>riskfolio-lib solvers,\nrolling evaluator, robust opt."]
-    API["backend/app/api/<br/>FastAPI REST (/api/v1/*)"]
+    API["backend/app/api/<br/>FastAPI REST (/api/v1/*; /api/* alias)"]
     FE["frontend/src/<br/>React + TypeScript UI"]
     USER(["User's browser"])
 
@@ -93,13 +93,13 @@ flowchart LR
     class CACHE storage;
 ```
 
-Everything downstream of the parquet cache is a pure function of it: `run_optimize()` never calls the SEC API directly, so a result is always reproducible from `data/sec/normalized/` alone, and the app works fully offline once the cache is populated. The original backtest engine (`backend/app/engine/`) is not replaced — the rolling out-of-sample evaluator and performance-summary metrics reuse its return/risk formulas as-is; the optimizer module is additive.
+Everything downstream of the parquet cache is deterministic for a given persisted request: `run_optimize()` never calls the SEC API directly, so a result can be reproduced from `request.json`, the exact NAV-cache snapshot, and matching code/dependency versions. The app works fully offline once the cache is populated. The original backtest engine (`backend/app/engine/`) is not replaced — the rolling out-of-sample evaluator and performance-summary metrics reuse its return/risk formulas as-is; the optimizer module is additive.
 
 **Tech stack**
 
 | Layer | Technology |
 | --- | --- |
-| Frontend | React 18, TypeScript, Vite, hand-built SVG charting (no charting library dependency) |
+| Frontend | React 19, TypeScript, Vite, hand-built SVG charting (no charting library dependency) |
 | Backend | FastAPI, Pydantic v2, riskfolio-lib, CVXPY (CLARABEL solver), pandas, numpy, scipy |
 | Data | SEC Thailand Open Data API, cached locally as Parquet |
 | Testing | pytest (optimizer + engine + API), Playwright (frontend e2e against the real backend) |
@@ -133,7 +133,7 @@ The in-app **Report** tab exposes the same audit trail per run: objective, const
 - **Efficient frontier chart** — with markers for this run's optimal point, the global-minimum-variance point, and the tangency (max-Sharpe) point.
 - **Trade list** — current vs. optimal weights and the resulting one-way turnover, when a current allocation is set in Step 1.
 - **Light and dark themes** — toggle in the top bar, preference remembered across visits.
-- **Shareable links** — each successful optimization is persisted under `data/runs/<run_id>`; the Results header's Share link copies a compact `?run=<run_id>` URL that reloads the saved result and inputs.
+- **Shareable links** — each successful optimization is persisted under `data/runs/<run_id>`; the Results header's Share link copies a compact `?run=<run_id>` URL that reloads the saved result and inputs. These are public bearer links (no login/ACL exists), so do not put personal or account-sensitive information into a run.
 
 ## 7. Installation & Setup
 
@@ -141,8 +141,8 @@ The in-app **Report** tab exposes the same audit trail per run: objective, const
 
 ```bash
 # Backend — the venv is created outside this directory because its path contains ":" and Python refuses to create a venv inside such a path
-python3 -m venv /private/tmp/sec_open_data_portfolio_backtester_venv
-source /private/tmp/sec_open_data_portfolio_backtester_venv/bin/activate
+python3 -m venv /private/tmp/sec_open_data_portfolio_optimizer_venv
+source /private/tmp/sec_open_data_portfolio_optimizer_venv/bin/activate
 python3 -m pip install -U pip
 python3 -m pip install -e ".[dev]"
 
@@ -190,7 +190,7 @@ python3 -m uvicorn backend.app.main:app --reload --port 8001   # matches the fro
 npm run frontend:dev
 ```
 
-Open the frontend dev server URL and follow the 3-step workflow: build a portfolio (search and add SEC funds, optionally set per-fund weight bounds), review/adjust the optimization objective and assumptions, then run the optimization.
+Open the frontend dev server URL and follow the 3-step workflow: build a portfolio (search and add SEC funds, optionally set per-fund weight bounds), review/adjust the optimization objective and assumptions, then run the optimization. The API rejects malformed dates, incompatible bounds, unsupported references, missing benchmark data, and non-finite numeric overrides server-side as well as in the form.
 
 ## 9. Project Structure
 
@@ -235,7 +235,7 @@ The backend test suite covers every optimization objective and risk measure, the
 cd frontend
 npm run build              # required: tests run against the production build, not the dev server
 npx playwright install chromium   # first time only
-npm run test:e2e
+PYTHON_BIN=/private/tmp/sec_open_data_portfolio_optimizer_venv/bin/python3 npm run test:e2e
 ```
 
 ## 11. Example Output
@@ -264,7 +264,7 @@ Targets for whoever operates this app to judge "is it healthy" without needing t
 - **Robust optimization is main-solve-only.** Monte Carlo resampling is applied to the primary optimization solve, not to the rolling evaluator's per-fold solves or the comparison portfolio's solve — an explicit decision to avoid a resample × fold multiplication of solve cost.
 - **No live/real-time data** — the engine reads a locally cached NAV snapshot, refreshed automatically via `.github/workflows/refresh-sec-data.yml` (daily) or manually via `scripts/sec_download_mvp.py`.
 - **Scope** — no live/broker trade execution by design; optimization and its out-of-sample validation only.
-- **Run storage has no account system** — persisted optimization runs are addressed by their generated run ID/URL on the configured server storage; there is no user account or saved-portfolio ownership layer yet.
+- **Run storage has no account system or automatic retention** — persisted optimization runs are addressed by their generated run ID/URL on the configured server storage; there is no user account, saved-portfolio ownership layer, access revocation, or scheduled cleanup yet. Operators must apply filesystem access controls and a retention policy appropriate to their deployment.
 
 ## 14. Roadmap
 

@@ -36,12 +36,18 @@ installed riskfolio-lib 7.3.0 in
    specific constraints from the brief's draft are used unchanged.
 """
 
+import contextlib
+import io
+import logging
+
 import numpy as np
 import pandas as pd
 import riskfolio as rp
 
 from backend.app.domain.optimize_schemas import OptimizeRequest
 from backend.app.optimizer import black_litterman
+
+logger = logging.getLogger("app.optimizer.solvers")
 
 # This project's RiskMeasure enum -> riskfolio-lib's own `rm` short codes.
 # All four resolve to LP/QP/SOCP problems per riskfolio-lib's own solver
@@ -198,11 +204,17 @@ def solve_mean_variance(
     # request's selected risk_measure -- the other three goals honor it.
     rm = "MV" if request.goal.value == "min_variance" else RM_CODES[request.risk_measure.value]
 
-    w = port.optimization(model="Classic", rm=rm, obj=obj, rf=port.rf, l=0, hist=True)
-    if w is None:
-        raise RuntimeError("SOLVER_NON_CONVERGENCE")
-
-    weights = {proj_id: float(w.loc[proj_id, "weights"]) * 100 for proj_id in w.index}
+    excess_returns = mu.to_numpy(dtype=float) - request.constraints.risk_free_rate_pct
+    if request.goal.value == "max_sharpe" and np.isfinite(excess_returns).all() and (excess_returns <= 0).all():
+        # In an all-negative excess-return regime, riskfolio's direct Sharpe
+        # transform can return a dominated interior point. Select the best
+        # feasible candidate from the same constrained frontier instead.
+        weights = _solve_max_sharpe_from_frontier(request, port, mu, sigma, returns)
+    else:
+        w = port.optimization(model="Classic", rm=rm, obj=obj, rf=port.rf, l=0, hist=True)
+        if w is None:
+            raise RuntimeError("SOLVER_NON_CONVERGENCE")
+        weights = {proj_id: float(w.loc[proj_id, "weights"]) * 100 for proj_id in w.index}
 
     lower, upper = _asset_bounds(request, list(mu.index))
     for i, proj_id in enumerate(mu.index):
@@ -237,6 +249,83 @@ def _weights_vector(weights: dict[str, float], proj_ids: list[str]) -> np.ndarra
 def _tail_alpha(request: OptimizeRequest) -> float:
     """riskfolio's `alpha` is the tail significance level, i.e. 1 - confidence."""
     return max(1e-4, min(0.5, 1 - request.tail_confidence / 100))
+
+
+def _frontier_sharpe_score(
+    request: OptimizeRequest,
+    weights: np.ndarray,
+    mu: pd.Series,
+    sigma: pd.DataFrame,
+    returns: pd.DataFrame,
+) -> float:
+    """Score one feasible frontier point using the request's risk measure.
+
+    Riskfolio's direct Sharpe solve has a known failure mode when every
+    expected excess return is negative: it can return an interior point that
+    is dominated by a feasible corner. The efficient-frontier sweep remains
+    reliable in that regime, so select its best point using the same units and
+    risk measure as the direct solve.
+    """
+    proj_ids = list(mu.index)
+    excess_return_pct = float(mu.to_numpy(dtype=float) @ weights) - request.constraints.risk_free_rate_pct
+    risk_code = RM_CODES[request.risk_measure.value]
+    covariance = sigma.loc[proj_ids, proj_ids].to_numpy(dtype=float) / 100 / 100
+    if risk_code == "MV":
+        variance = float(weights @ covariance @ weights)
+        risk_fraction = float(np.sqrt(max(variance, 0.0)))
+    else:
+        risk_fraction = float(
+            rp.RiskFunctions.Sharpe_Risk(
+                returns[proj_ids],
+                w=weights.reshape(-1, 1),
+                cov=covariance,
+                rm=risk_code,
+                rf=request.constraints.risk_free_rate_pct / 100,
+                alpha=_tail_alpha(request),
+            )
+        )
+    if not np.isfinite(risk_fraction) or risk_fraction <= 1e-12:
+        return float("-inf")
+    return excess_return_pct / (risk_fraction * 100)
+
+
+def _solve_max_sharpe_from_frontier(
+    request: OptimizeRequest,
+    port: rp.Portfolio,
+    mu: pd.Series,
+    sigma: pd.DataFrame,
+    returns: pd.DataFrame,
+) -> dict[str, float]:
+    """Choose the best feasible frontier point for a negative-excess regime."""
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        frontier_weights = port.efficient_frontier(
+            model="Classic",
+            rm=RM_CODES[request.risk_measure.value],
+            rf=port.rf,
+            points=80,
+            hist=True,
+        )
+    noise = captured.getvalue().strip()
+    if noise:
+        logger.warning("riskfolio negative-excess frontier diagnostics: %s", noise.replace("\n", " | "))
+    if frontier_weights is None or frontier_weights.empty:
+        raise RuntimeError("SOLVER_NON_CONVERGENCE")
+
+    proj_ids = list(mu.index)
+    best_score = float("-inf")
+    best_weights: dict[str, float] | None = None
+    for point in frontier_weights.columns:
+        vector = frontier_weights.loc[proj_ids, point].to_numpy(dtype=float)
+        if not np.isfinite(vector).all():
+            continue
+        score = _frontier_sharpe_score(request, vector, mu, sigma, returns)
+        if score > best_score:
+            best_score = score
+            best_weights = {proj_id: float(vector[index]) * 100 for index, proj_id in enumerate(proj_ids)}
+    if best_weights is None:
+        raise RuntimeError("SOLVER_NON_CONVERGENCE")
+    return best_weights
 
 
 # Which risk measures are *deviations* (scale with sqrt(time), so they can be

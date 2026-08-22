@@ -20,7 +20,8 @@ def _request(goal: str, black_litterman: dict | None = None) -> OptimizeRequest:
         "robustOptimization": False, "useHistoricalReturns": True,
         "useHistoricalVolatility": True, "useHistoricalCorrelations": True,
         "expectedReturnOverrides": {}, "volatilityOverrides": {}, "correlationOverrides": {},
-        "returnMethod": "historical_mean", "covarianceMethod": "sample", "blackLitterman": black_litterman,
+        "returnMethod": "black_litterman_posterior" if goal == "black_litterman" else "historical_mean",
+        "covarianceMethod": "sample", "blackLitterman": black_litterman,
         "benchmarkProjId": None,
         "constraints": {
             "longOnly": True, "minWeightPct": 0, "maxWeightPct": 100,

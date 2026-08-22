@@ -21,7 +21,6 @@ import pandas as pd
 
 from backend.app.sec.cache import NORMALIZED_DIR, write_manifest, write_parquet
 from backend.app.sec.client import SecOpenDataClient
-from backend.app.sec.endpoints import FUND_DAILY_NAV
 from scripts.sec_download_mvp import (
     BASE_SLEEP_SECONDS,
     BLOCKING_STATUSES,

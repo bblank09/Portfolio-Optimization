@@ -107,12 +107,11 @@ export function OptimizeWorkspace() {
   const [currentStep, setCurrentStep] = useState(0);
   const [unlockedStep, setUnlockedStep] = useState(0);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">(() => (localStorage.getItem("po-theme") === "dark" ? "dark" : "light"));
+  const theme = "dark" as const;
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("po-theme", theme);
-  }, [theme]);
+  }, []);
 
   useEffect(() => {
     fetchFunds()
@@ -421,9 +420,6 @@ export function OptimizeWorkspace() {
           {navAsOf ? <span className="tag nav-as-of">NAV data as of {formatNavDate(navAsOf)}</span> : null}
         </div>
         <Stepper currentStep={currentStep} onStepClick={goToStep} unlockedStep={unlockedStep} />
-        <button className="theme-toggle" onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))} type="button">
-          Toggle theme
-        </button>
       </header>
 
       <div className="main">
@@ -471,10 +467,6 @@ export function OptimizeWorkspace() {
         <div className="app-footer-text">
           <span className="app-footer-name">Supachok Julaupay</span>
           <a href="https://github.com/bblank09" rel="noreferrer" target="_blank">github.com/bblank09</a>
-          <span className="app-footer-legal">
-            <a href="#">Privacy</a>
-            <a href="#">Terms</a>
-          </span>
         </div>
       </footer>
 

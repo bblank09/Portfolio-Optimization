@@ -1,7 +1,13 @@
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
-from backend.app.data.quality import align_nav_panel, validate_nav_panel
+from backend.app.data.quality import (
+    align_nav_panel,
+    missing_business_days,
+    validate_nav_panel,
+)
 from backend.app.domain.optimize_schemas import OptimizeRequest
 from backend.app.optimizer import black_litterman
 from backend.app.sec.cache import load_nav_panel
@@ -36,6 +42,8 @@ def _load_returns_for(proj_ids: list[str], request: OptimizeRequest, error_code:
     window = nav.loc[pd.Timestamp(request.time_period.start_date):pd.Timestamp(request.time_period.end_date), proj_ids]
     if window.empty or window.isna().to_numpy().any():
         raise ValueError(error_code)
+    if request.data_frequency.value == "daily" and missing_business_days(pd.DatetimeIndex(window.index)):
+        raise ValueError(error_code)
     issues = validate_nav_panel(window, as_of=pd.Timestamp(request.time_period.end_date))
     if any(issue["severity"] == "error" for issue in issues):
         raise ValueError(error_code)
@@ -62,7 +70,7 @@ def load_benchmark_returns(benchmark_proj_id: str, request: OptimizeRequest) -> 
     insufficient benchmark data is a hard error for the whole request, not
     a degrade-gracefully case."""
     panel = _load_returns_for([benchmark_proj_id], request, "BENCHMARK_DATA_UNAVAILABLE")
-    return panel[benchmark_proj_id]
+    return cast(pd.Series, panel[benchmark_proj_id])
 
 
 def periods_per_year(request: OptimizeRequest) -> int:
@@ -89,7 +97,7 @@ def portfolio_return_series(
     """
     selected = returns if columns is None else returns[columns]
     aligned = np.array([weights.get(str(column), 0.0) / 100 for column in selected.columns])
-    return (selected @ aligned).dropna()
+    return cast(pd.Series, (selected @ aligned).dropna())
 
 
 def build_mu_sigma(request: OptimizeRequest, returns: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
@@ -135,23 +143,25 @@ def build_mu_sigma(request: OptimizeRequest, returns: pd.DataFrame) -> tuple[pd.
             if proj_id in mu.index:
                 mu[proj_id] = override
     if not request.use_historical_volatility:
-        vol = (pd.Series(sigma.values.diagonal(), index=sigma.index)) ** 0.5
+        vol = pd.Series(np.sqrt(sigma.to_numpy(dtype=float).diagonal()), index=sigma.index)
         for proj_id, override in request.volatility_overrides.items():
             if proj_id in vol.index:
                 vol[proj_id] = override
         corr = sigma.copy()
         for i in sigma.index:
             for j in sigma.columns:
-                corr.loc[i, j] = sigma.loc[i, j] / ((sigma.loc[i, i] ** 0.5) * (sigma.loc[j, j] ** 0.5)) if sigma.loc[i, i] > 0 and sigma.loc[j, j] > 0 else 0.0
+                variance_i = float(cast(float, sigma.loc[i, i]))
+                variance_j = float(cast(float, sigma.loc[j, j]))
+                corr.loc[i, j] = float(cast(float, sigma.loc[i, j])) / (variance_i**0.5 * variance_j**0.5) if variance_i > 0 and variance_j > 0 else 0.0
         for i in sigma.index:
             for j in sigma.columns:
-                sigma.loc[i, j] = corr.loc[i, j] * vol[i] * vol[j]
+                sigma.loc[i, j] = float(corr.loc[i, j]) * float(vol[i]) * float(vol[j])
     if not request.use_historical_correlations:
         for key, override in request.correlation_overrides.items():
             id_1, id_2 = key.split("|")
             if id_1 in sigma.index and id_2 in sigma.columns:
-                vol_1 = sigma.loc[id_1, id_1] ** 0.5
-                vol_2 = sigma.loc[id_2, id_2] ** 0.5
+                vol_1 = float(cast(float, sigma.loc[id_1, id_1])) ** 0.5
+                vol_2 = float(cast(float, sigma.loc[id_2, id_2])) ** 0.5
                 sigma.loc[id_1, id_2] = override * vol_1 * vol_2
                 sigma.loc[id_2, id_1] = override * vol_1 * vol_2
 

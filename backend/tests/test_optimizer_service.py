@@ -105,6 +105,7 @@ def test_run_optimize_populates_real_compare_weights(two_real_fund_request):
     assert sum(result.compare_weights.values()) == pytest.approx(100, abs=0.5)
     assert result.compare_note is None
     assert result.selected_risk_measure.compared_value is not None
+    assert {column.label for column in result.performance_summary} == {"Optimized", "Equal weighted"}
 
 
 def test_run_optimize_populates_real_benchmark_comparison(two_real_fund_request):

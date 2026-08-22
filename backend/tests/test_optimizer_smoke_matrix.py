@@ -92,7 +92,8 @@ def _request(
         "robustOptimization": False,
         "useHistoricalReturns": True, "useHistoricalVolatility": True, "useHistoricalCorrelations": True,
         "expectedReturnOverrides": {}, "volatilityOverrides": {}, "correlationOverrides": {},
-        "returnMethod": "historical_mean", "covarianceMethod": "sample",
+        "returnMethod": "black_litterman_posterior" if goal == "black_litterman" else "historical_mean",
+        "covarianceMethod": "sample",
         "blackLitterman": None, "benchmarkProjId": None,
         "constraints": {
             "longOnly": True, "minWeightPct": 0, "maxWeightPct": 100,

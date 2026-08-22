@@ -1,5 +1,9 @@
 # Phase 5, Sub-project 1: Backend Optimizer Core + API — Design
 
+Status: **implemented (updated 2026-08-17).** This is the historical design record
+for the first Phase 5 sub-project. The current implementation and tests are the
+source of truth; repository commit/merge state is tracked separately.
+
 ## Stated goal
 
 Replace the frontend's Phase 4 mock (`frontend/src/lib/mockOptimize.ts`) with a real
@@ -9,7 +13,7 @@ in Phase 5 (backend optimizer core + API → rolling out-of-sample evaluator →
 integration), scoped and ordered by dependency: sub-projects 2 and 3 build on this one
 and are out of scope for this spec.
 
-## Current state
+## Current state at design time
 
 - `frontend/src/lib/mockOptimize.ts` deterministically fabricates every number in
   `OptimizeResult` from the request alone — no real return/covariance estimation, no
@@ -23,8 +27,8 @@ and are out of scope for this spec.
   tool and this project's own `docs/optimization-assumptions.md` methodology
   decisions. This spec treats that TypeScript contract as the source of truth for the
   Pydantic schema — not something to redesign from scratch.
-- `backend/app/optimizer/` does not exist yet. `riskfolio-lib` and `cvxpy` are not yet
-  project dependencies (confirmed via `pyproject.toml`).
+- At design time, `backend/app/optimizer/` did not exist yet. `riskfolio-lib` and
+  `cvxpy` were not project dependencies (confirmed via `pyproject.toml`).
 - `backend/app/engine/`, `backend/app/sec/`, `backend/app/data/quality.py` are mature,
   tested, and must be reused where they already solve a problem this sub-project also
   faces (NAV panel loading/alignment, gap detection) — CLAUDE.md explicitly forbids

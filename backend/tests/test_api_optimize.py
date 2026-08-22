@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 import pytest
@@ -150,6 +151,16 @@ def test_unexpected_exception_is_translated_to_coded_server_error():
         assert response.json()["code"] == ErrorCode.INTERNAL_ERROR
 
 
+def test_unknown_value_error_is_translated_to_coded_server_error():
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch("backend.app.api.optimize.run_optimize", side_effect=ValueError("unexpected solver failure")):
+        response = client.post("/api/optimize", json=_valid_optimize_payload())
+
+    assert response.status_code == 500
+    assert response.json()["code"] == ErrorCode.INTERNAL_ERROR
+
+
 def test_successful_optimization_gets_a_persisted_run_url(monkeypatch, tmp_path):
     """A successful optimize response must be reloadable by its run id.
 
@@ -171,6 +182,7 @@ def test_successful_optimization_gets_a_persisted_run_url(monkeypatch, tmp_path)
     assert created.status_code == 200
     body = created.json()
     assert body["runId"].startswith("run_")
+    assert len(body["runId"].rsplit("_", 1)[-1]) == 32
     assert body["createdAt"]
     assert body["dataSource"] == "sec_open_data"
     assert (tmp_path / body["runId"] / "request.json").is_file()
@@ -192,3 +204,18 @@ def test_unknown_optimization_run_returns_run_not_found(monkeypatch, tmp_path):
 
     assert response.status_code == 404
     assert response.json()["code"] == ErrorCode.RUN_NOT_FOUND
+
+
+def test_corrupt_optimization_run_without_request_is_internal_error(monkeypatch, tmp_path):
+    from backend.app.api import optimize as optimize_module
+
+    monkeypatch.setattr(optimize_module, "RUNS_DIR", tmp_path)
+    run_dir = tmp_path / "run_corrupt"
+    run_dir.mkdir()
+    (run_dir / "result.json").write_text(json.dumps({"runId": "run_corrupt"}), encoding="utf-8")
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.get("/api/optimize/run_corrupt")
+
+    assert response.status_code == 500
+    assert response.json()["code"] == ErrorCode.INTERNAL_ERROR

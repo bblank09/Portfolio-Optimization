@@ -1,8 +1,13 @@
-# Portfolio Backtesting Web App - Focused Reference Brief
+# Historical Parent-Product Reference Brief — Portfolio Backtesting
+
+> This is a historical reference for the sibling **Backtest Portfolio** project,
+> not the current Portfolio Optimization product specification. The current
+> product scope is documented in `README.md`, `CLAUDE.md`, and
+> `docs/optimization-assumptions.md`.
 
 Created: 2026-07-27
 
-Scope: Portfolio Backtesting only.
+Scope: Portfolio Backtesting only (parent product).
 
 Out of scope for this brief:
 
@@ -65,7 +70,7 @@ The app should answer:
 
 ## Product Positioning
 
-This app is not "a trading bot" and not "an optimizer." It is a transparent historical portfolio backtester.
+The parent backtesting app is not "a trading bot" and not "an optimizer." It is a transparent historical portfolio backtester. The current fork adds a separate optimization product; the out-of-scope list above applies only to this parent brief.
 
 Positioning:
 

@@ -4,6 +4,8 @@ import { defineConfig, devices } from "@playwright/test";
 // backend on a single origin -- the same setup used in the real Docker
 // deployment (see backend/app/main.py's static-serving block) -- rather than
 // through Vite's dev server. Run `npm run build` before `npm run test:e2e`.
+// The command also needs a Python environment with the backend dependencies;
+// set PYTHON_BIN when the active `python3` is not that environment.
 //
 // KNOWN FLAKE (documented, not silently retried away): the second test
 // ("URL updates with a shareable run id...") intermittently fails to see
@@ -33,7 +35,7 @@ export default defineConfig({
     }
   ],
   webServer: {
-    command: "/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8001",
+    command: `${process.env.PYTHON_BIN ?? "python3"} -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8001`,
     url: "http://127.0.0.1:8001/api/health",
     reuseExistingServer: true,
     cwd: "..",

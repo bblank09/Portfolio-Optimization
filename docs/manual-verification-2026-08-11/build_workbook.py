@@ -86,7 +86,6 @@ def main() -> None:
     COL_MS50 = "B"      # M0155_2547
     COL_KSET50 = "C"    # M0209_2548
     n_nav = len(nav_data)
-    nav_last_row = n_nav + 1  # header occupies row 1
 
     wb = Workbook()
 
@@ -170,7 +169,6 @@ def main() -> None:
                      "live formulas are checked against. Everything else is a formula "
                      "chain rooted in NAV.")
     r += 1
-    hdr = r
     r = _header_row(ws, r, ["projId", "displayName", "given weight (result.json)",
                             "mean monthly return (live)", "annualized return % (live)",
                             "given assetSummary.expectedReturnPct", "diff",

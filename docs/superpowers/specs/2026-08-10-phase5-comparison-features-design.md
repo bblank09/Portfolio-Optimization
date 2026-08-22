@@ -1,19 +1,20 @@
 # Phase 5 sub-project 3: Comparison Features — Design
 
-Status: **approved, not yet implemented.** Third of an expanded set of ordered
+Status: **implemented (updated 2026-08-17).** This is the historical design record for the third of an expanded set of ordered
 Phase 5 sub-projects. Sub-project 1 (backend optimizer core) and sub-project 2
-(rolling out-of-sample evaluator) are complete and merged to `main`.
+(rolling out-of-sample evaluator) are implemented in the current codebase;
+repository merge state is tracked separately.
 
 ## Why this sub-project exists
 
 An audit of every `OptimizeRequest`/`OptimizeConstraints` field against the
 real backend (`backend/app/optimizer/*.py`) found several UI-selectable
-fields the backend never reads at all — the mock (`mockOptimize.ts`)
+fields the backend did not read at design time — the mock (`mockOptimize.ts`)
 implements every field because it's entirely fabricated, but sub-project 1's
 scope only covered the 7 objectives + frontier + diagnostics + Black-Litterman,
 not every Assumptions-step control. `compareAgainst` and `benchmarkProjId`
-are two of these: selecting either currently does nothing — the real API
-always returns `compareWeights: null` and `benchmarkComparison: null`, while
+were two of these: at design time, selecting either did nothing — the real API
+returned `compareWeights: null` and `benchmarkComparison: null`, while
 the UI (`OptimizeResults.tsx`) renders whole sections keyed on those fields.
 This sub-project makes both fields real. (The remaining gaps — group
 constraints, max holdings, return-method, rolling lookback, robust

@@ -1,8 +1,8 @@
-import { AlertTriangle, BarChart3, Download, Share2 } from "lucide-react";
+import { AlertTriangle, BarChart3, Download } from "lucide-react";
 import { useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import type { SecFund, TimeSeriesPoint } from "../types/backtest";
-import type { OptimizeRequest, OptimizeResult } from "../types/optimize";
+import type { DataFrequency, OptimizeRequest, OptimizeResult } from "../types/optimize";
 import { AxisCurve } from "./AxisCurve";
 import { OBJECTIVES } from "./OptimizeAssumptionsStep";
 
@@ -11,12 +11,26 @@ interface Props {
   funds: SecFund[]; // selected shortlist, for display-name lookups
   compareLabel: string | null;
   request?: OptimizeRequest; // for the Report tab's run_config.json export
-  onShareLink?: () => void;
-  shareLinkLabel?: string;
 }
 
 type ResultTab = "Summary" | "Frontier" | "Weights" | "Performance" | "Rolling" | "Report";
 const TABS: ResultTab[] = ["Summary", "Frontier", "Weights", "Performance", "Rolling", "Report"];
+
+function periodLabel(frequency: DataFrequency | undefined): string {
+  if (frequency === "daily") return "daily";
+  if (frequency === "weekly") return "weekly";
+  return "monthly";
+}
+
+function ResultTabPanel({ tab, activeTab, children }: { tab: ResultTab; activeTab: ResultTab; children: ReactNode }) {
+  if (tab !== activeTab) return null;
+  const slug = tab.toLowerCase();
+  return (
+    <div aria-labelledby={`optimization-tab-${slug}`} id={`optimization-panel-${slug}`} role="tabpanel" tabIndex={0}>
+      {children}
+    </div>
+  );
+}
 
 const pct = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 // Several backend fields are legitimately null (a realized metric that is
@@ -35,7 +49,7 @@ const PALETTE = ["#5b21d6", "#34383e", "#92620a", "#9aa1ac", "#7c4ded"];
 const TRANSITION_COLORS = ["#2563eb", "#e11d48", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2", "#ea580c", "#4b5563"];
 const STANDARD_CHART = { width: 880, height: 320, left: 70, top: 24, right: 850, bottom: 280 };
 
-export function OptimizeResults({ result, funds, compareLabel, request, onShareLink, shareLinkLabel }: Props) {
+export function OptimizeResults({ result, funds, compareLabel, request }: Props) {
   const [activeTab, setActiveTab] = useState<ResultTab>("Summary");
   const nameOf = (projId: string) => funds.find((f) => f.proj_id === projId)?.display_name ?? projId;
   // compareLabel reflects Constraints' "Compared Allocation" *setting*, not
@@ -78,31 +92,56 @@ export function OptimizeResults({ result, funds, compareLabel, request, onShareL
           <h2>{request ? OBJECTIVES.find((o) => o.id === request.goal)?.title ?? "Optimization" : "Optimization"} &middot; {funds.length} funds</h2>
         </div>
         <div className="resultHeaderActions">
-          {onShareLink ? (
-            <button className="secondaryButton" onClick={onShareLink} type="button">
-              <Share2 size={16} /> {shareLinkLabel ?? "Share link"}
-            </button>
-          ) : null}
           <button className="secondaryButton" onClick={() => downloadText("optimization-result.json", JSON.stringify(result, null, 2), "application/json")} type="button">
             <Download size={16} /> Result JSON
           </button>
         </div>
       </div>
 
-      <nav aria-label="Optimization output tabs" className="resultTabs">
+      <nav aria-label="Optimization output tabs" aria-orientation="horizontal" className="resultTabs" role="tablist">
         {TABS.map((tab) => (
-          <button className={activeTab === tab ? "resultTab active" : "resultTab"} key={tab} onClick={() => setActiveTab(tab)} type="button">
+          <button
+            aria-controls={`optimization-panel-${tab.toLowerCase()}`}
+            aria-selected={activeTab === tab}
+            className={activeTab === tab ? "resultTab active" : "resultTab"}
+            id={`optimization-tab-${tab.toLowerCase()}`}
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            onKeyDown={(event) => {
+              const index = TABS.indexOf(tab);
+              const nextIndex = event.key === "ArrowRight"
+                ? (index + 1) % TABS.length
+                : event.key === "ArrowLeft"
+                  ? (index - 1 + TABS.length) % TABS.length
+                  : event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? TABS.length - 1
+                      : -1;
+              if (nextIndex >= 0) {
+                event.preventDefault();
+                const nextTab = TABS[nextIndex];
+                setActiveTab(nextTab);
+                window.requestAnimationFrame(() => {
+                  document.getElementById(`optimization-tab-${nextTab.toLowerCase()}`)?.focus();
+                });
+              }
+            }}
+            role="tab"
+            tabIndex={activeTab === tab ? 0 : -1}
+            type="button"
+          >
             {tab}
           </button>
         ))}
       </nav>
 
-      {activeTab === "Summary" ? <SummaryTab compareLabel={effectiveCompareLabel} nameOf={nameOf} request={request} result={result} setActiveTab={setActiveTab} /> : null}
-      {activeTab === "Frontier" ? <FrontierTab nameOf={nameOf} result={result} /> : null}
-      {activeTab === "Weights" ? <WeightsTab compareLabel={effectiveCompareLabel} nameOf={nameOf} result={result} /> : null}
-      {activeTab === "Performance" ? <PerformanceTab result={result} /> : null}
-      {activeTab === "Rolling" ? <RollingTab result={result} /> : null}
-      {activeTab === "Report" ? <ReportTab compareLabel={effectiveCompareLabel} nameOf={nameOf} request={request} result={result} /> : null}
+      <ResultTabPanel activeTab={activeTab} tab="Summary"><SummaryTab compareLabel={effectiveCompareLabel} nameOf={nameOf} request={request} result={result} setActiveTab={setActiveTab} /></ResultTabPanel>
+      <ResultTabPanel activeTab={activeTab} tab="Frontier"><FrontierTab nameOf={nameOf} result={result} /></ResultTabPanel>
+      <ResultTabPanel activeTab={activeTab} tab="Weights"><WeightsTab compareLabel={effectiveCompareLabel} nameOf={nameOf} result={result} /></ResultTabPanel>
+      <ResultTabPanel activeTab={activeTab} tab="Performance"><PerformanceTab result={result} /></ResultTabPanel>
+      <ResultTabPanel activeTab={activeTab} tab="Rolling"><RollingTab result={result} /></ResultTabPanel>
+      <ResultTabPanel activeTab={activeTab} tab="Report"><ReportTab compareLabel={effectiveCompareLabel} nameOf={nameOf} request={request} result={result} /></ResultTabPanel>
     </section>
   );
 }
@@ -278,13 +317,13 @@ function EquityCurveChart({ title, series }: { title: string; series: { label: s
 // including the initial zero point, then render it through the shared
 // backtest AxisCurve so scale, baseline, area fill, hover, and endpoint
 // treatment stay identical in both products.
-function DrawdownChart({ returnsPct }: { returnsPct: number[] }) {
+function DrawdownChart({ returnsPct, frequency }: { returnsPct: number[]; frequency: string }) {
   if (!returnsPct.length) return null;
   const points = drawdownCurveFromReturns(returnsPct);
   const drawdownFormat = (value: number) => `${pct.format(value)}%`;
   return (
     <AxisCurve
-      title="Drawdown path"
+      title={`Drawdown path (${frequency} returns)`}
       series={[{ label: "Portfolio drawdown", points, color: "#b42318", area: true, valueFormat: drawdownFormat }]}
       valueFormat={drawdownFormat}
     />
@@ -432,9 +471,6 @@ function SummaryTab({ result, nameOf, compareLabel, setActiveTab, request }: { r
             </table>
           </div>
         </section>
-      ) : null}
-      {compareLabel ? (
-        <p className="field-hint">Compared against <b>{compareLabel}</b> in the Weights and Performance tabs.</p>
       ) : null}
     </div>
   );
@@ -989,7 +1025,7 @@ function WeightsTab({ result, nameOf, compareLabel }: { result: OptimizeResult; 
 // riskfolio-lib's own jupyter_report() ships a return histogram alongside
 // weight/risk-contribution charts -- this app had no return-distribution
 // view anywhere before this.
-function ReturnHistogram({ monthlyReturnsPct }: { monthlyReturnsPct: number[] }) {
+function ReturnHistogram({ monthlyReturnsPct, frequency }: { monthlyReturnsPct: number[]; frequency: string }) {
   if (!monthlyReturnsPct.length) return null;
   const { width, height, left, top, right, bottom } = STANDARD_CHART;
   const rawMin = Math.min(...monthlyReturnsPct);
@@ -1012,14 +1048,14 @@ function ReturnHistogram({ monthlyReturnsPct }: { monthlyReturnsPct: number[] })
 
   return (
     <section className="chartPanel">
-      <h3>Monthly return distribution</h3>
+      <h3>{frequency[0].toUpperCase() + frequency.slice(1)} return distribution</h3>
       <div className="chartLegend chartLegendBlock">
         <span><i className="legendSquare" style={{ background: "var(--danger)" }} />Loss periods</span>
         <span><i className="legendSquare" style={{ background: "var(--accent)" }} />Gain periods</span>
         <span className="chartMeta">{monthlyReturnsPct.length} observations · {binCount} bins</span>
       </div>
       <div className="chartCanvas">
-        <svg aria-label="Monthly return distribution histogram" className="axisChart" preserveAspectRatio="none" role="img" viewBox={`0 0 ${width} ${height}`}>
+        <svg aria-label={`${frequency} return distribution histogram`} className="axisChart" preserveAspectRatio="none" role="img" viewBox={`0 0 ${width} ${height}`}>
           <line className="axisLine" x1={left} x2={right} y1={bottom} y2={bottom} />
           <line className="axisLine" x1={left} x2={left} y1={top} y2={bottom} />
           <YAxisTicks format={(v) => String(Math.round(v))} height={height} max={maxCount} min={0} padding={left} width={width} y={y} />
@@ -1077,13 +1113,13 @@ function trailingReturn(monthlyReturnsPct: number[], periods: number): number {
   return (compounded - 1) * 100;
 }
 
-function TrailingReturnsPanel({ monthlyReturnsPct }: { monthlyReturnsPct: number[] }) {
+function TrailingReturnsPanel({ monthlyReturnsPct, frequency }: { monthlyReturnsPct: number[]; frequency: string }) {
   if (!monthlyReturnsPct.length) return null;
   const windows = [3, 6, 12, monthlyReturnsPct.length].filter((n, i, arr) => arr.indexOf(n) === i && n <= monthlyReturnsPct.length);
-  const labelFor = (n: number) => (n === monthlyReturnsPct.length ? "Full series" : `Last ${n} periods`);
+  const labelFor = (n: number) => (n === monthlyReturnsPct.length ? "Full series" : `Last ${n} ${frequency} periods`);
   return (
     <section className="tablePanel">
-      <h3>Trailing returns</h3>
+      <h3>Trailing returns ({frequency})</h3>
       <div className="tableScroller">
         <table>
           <thead><tr>{windows.map((n) => <th key={n}>{labelFor(n)}</th>)}</tr></thead>
@@ -1143,12 +1179,12 @@ function computeDrawdownPeriods(monthlyReturnsPct: number[]): DrawdownPeriod[] {
   return periods.sort((a, b) => a.drawdownPct - b.drawdownPct).slice(0, 5);
 }
 
-function DrawdownPeriodsPanel({ monthlyReturnsPct }: { monthlyReturnsPct: number[] }) {
+function DrawdownPeriodsPanel({ monthlyReturnsPct, frequency }: { monthlyReturnsPct: number[]; frequency: string }) {
   const periods = computeDrawdownPeriods(monthlyReturnsPct);
   if (!periods.length) return null;
   return (
     <section className="tablePanel">
-      <h3>Worst drawdown periods</h3>
+      <h3>Worst drawdown periods ({frequency})</h3>
       <div className="tableScroller">
         <table>
           <thead><tr><th>Rank</th><th>Start</th><th>Trough</th><th>Length</th><th>Recovery</th><th>Drawdown</th></tr></thead>
@@ -1158,7 +1194,7 @@ function DrawdownPeriodsPanel({ monthlyReturnsPct }: { monthlyReturnsPct: number
                 <td>{index + 1}</td>
                 <td>Period {p.startIndex + 1}</td>
                 <td>Period {p.troughIndex + 1}</td>
-                <td>{p.lengthPeriods} period{p.lengthPeriods === 1 ? "" : "s"}</td>
+                <td>{p.lengthPeriods} {frequency} period{p.lengthPeriods === 1 ? "" : "s"}</td>
                 <td>{p.recoveryIndex !== null ? `Period ${p.recoveryIndex + 1}` : "Not recovered in series"}</td>
                 <td>{pct.format(p.drawdownPct)}%</td>
               </tr>
@@ -1172,6 +1208,7 @@ function DrawdownPeriodsPanel({ monthlyReturnsPct }: { monthlyReturnsPct: number
 
 function PerformanceTab({ result }: { result: OptimizeResult }) {
   const rm = result.selectedRiskMeasure;
+  const frequency = periodLabel(result.returnFrequency);
   return (
     <div className="tabStack">
       <section className="tablePanel">
@@ -1219,11 +1256,11 @@ function PerformanceTab({ result }: { result: OptimizeResult }) {
           </div>
         </section>
       ) : null}
-      <TrailingReturnsPanel monthlyReturnsPct={result.monthlyReturnsPct} />
-      <EquityCurveChart series={[{ label: "Optimized", returnsPct: result.monthlyReturnsPct, color: "#5b21d6" }]} title="Growth of 100 (optimized portfolio)" />
-      <DrawdownChart returnsPct={result.monthlyReturnsPct} />
-      <DrawdownPeriodsPanel monthlyReturnsPct={result.monthlyReturnsPct} />
-      <ReturnHistogram monthlyReturnsPct={result.monthlyReturnsPct} />
+      <TrailingReturnsPanel frequency={frequency} monthlyReturnsPct={result.monthlyReturnsPct} />
+      <EquityCurveChart series={[{ label: "Optimized", returnsPct: result.monthlyReturnsPct, color: "#5b21d6" }]} title={`Growth of 100 (${frequency} returns; optimized portfolio)`} />
+      <DrawdownChart frequency={frequency} returnsPct={result.monthlyReturnsPct} />
+      <DrawdownPeriodsPanel frequency={frequency} monthlyReturnsPct={result.monthlyReturnsPct} />
+      <ReturnHistogram frequency={frequency} monthlyReturnsPct={result.monthlyReturnsPct} />
     </div>
   );
 }
@@ -1252,6 +1289,12 @@ function RollingTab({ result }: { result: OptimizeResult }) {
   const positiveFolds = folds.filter((f) => f.realizedReturnPct > 0).length;
   return (
     <div className="tabStack">
+      {!folds.length ? (
+        <div className="emptyResult" role="status">
+          <h3>No rolling validation folds were produced.</h3>
+          <p>{result.robustNote ?? "The selected period does not contain enough observations for the requested lookback and rebalance frequency."}</p>
+        </div>
+      ) : null}
       {folds.length ? (
         <div className="metricGrid">
           <StaticMetric label="Avg. realized return" sub={`across ${folds.length} folds`} value={`${pct.format(avgReturn)}%`} />

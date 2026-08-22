@@ -1,6 +1,6 @@
 # Phase 5 sub-project 4: Portfolio Constraint Completion — Design
 
-Status: **approved, not yet implemented.** Fourth of an expanded set of ordered
+Status: **implemented (updated 2026-08-17).** This is the historical design record for the fourth of an expanded set of ordered
 Phase 5 sub-projects. Sub-projects 1 (backend optimizer core), 2 (rolling
 out-of-sample evaluator), and 3 (comparison features) are complete and merged
 to `main`.

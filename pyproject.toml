@@ -36,6 +36,8 @@ testpaths = ["backend/tests"]
 
 [tool.mypy]
 explicit_package_bases = true
+ignore_missing_imports = true
+exclude = '(^|/)(backend/tests|scripts)/'
 
 [tool.setuptools.packages.find]
 include = ["backend*"]

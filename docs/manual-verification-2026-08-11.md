@@ -1,4 +1,8 @@
-# Manual Verification — 2026-08-11
+# Historical Manual Verification — 2026-08-11
+
+> This report is a snapshot of a run produced before the 2026-08-17 solver
+> remediation. Its stored `result.json` retains the original output for audit
+> evidence; current behavior is covered by the optimizer regression tests.
 
 **Test case:** K-SET50 (M0209_2548) + M-S50 (M0155_2547), 2024-02-29 to
 2024-05-31, monthly frequency, Max Sharpe / Std Dev / historical mean /
@@ -233,7 +237,13 @@ Note this finding does **not** affect the verified test case's numbers:
 that request uses `riskMeasure = "std_dev"` at `tailConfidence = 95`, where
 `alpha` is both ignored by the risk measure and coincidentally correct.
 
-### Finding B — Max Sharpe returns a dominated interior point when all excess returns are negative (ROOT CAUSE IDENTIFIED, FIX DEFERRED)
+### Finding B — Max Sharpe returns a dominated interior point when all excess returns are negative (RESOLVED IN CURRENT CODE)
+
+This finding describes the historical result above. The current solver detects
+the all-negative excess-return regime and selects the best feasible point from
+the constrained efficient-frontier sweep using the requested risk measure. The
+historical `result.json` is not silently rewritten; the regression test and
+current runtime verification are the source of truth for the remediation.
 
 **What is wrong.** For this test case the solver's own `optimalWeights`
 (97.49 % / 2.51 %, annualized Sharpe −0.49398) are dominated on both axes
@@ -292,19 +302,16 @@ is likewise annual. For `rm="MV"` with `hist=True` the objective reads
 `port.cov`, not the monthly `returns` panel, so all three inputs are on the
 same annual footing. No mismatch.
 
-**Why no fix was applied.** Maximizing a Sharpe ratio that is negative
-everywhere on the feasible set is not a convex or quasi-concave problem —
-the ratio `(μ'w − r_f)/σ(w)` with a negative numerator is quasi-*convex*,
-so it has no drop-in convex reformulation. There is no wrong sign, no
-periodization error, and no solver parameter to set. Fixing it means a
-deliberate design decision — for example, detecting an all-negative excess
-regime and switching the objective (to minimum variance, or to maximizing
-return per unit risk under a fixed risk budget), and deciding what the API
-should then report and how the UI should label it. Per this task's scope
-rule, that decision is escalated rather than patched ad hoc, so no
-special-case code was written.
+**Resolution in the current implementation.** Maximizing a Sharpe ratio that
+is negative everywhere on the feasible set is not a convex or quasi-concave
+problem, so the direct riskfolio reformulation has no stable interior
+maximizer. The implementation now detects that regime and uses the same
+constrained efficient-frontier candidates to select the highest feasible
+request-risk-adjusted Sharpe point. If the sweep cannot produce a feasible
+candidate, it returns `SOLVER_NON_CONVERGENCE` rather than an arbitrary
+interior allocation.
 
-**Practical severity.** The wrong answer is bounded and the regime is
+**Practical severity of the historical bug.** The wrong answer was bounded and the regime is
 narrow: it requires *every* asset's excess return over the window to be
 negative, and here it costs 0.054 of annualized Sharpe (−0.494 vs. −0.440).
 But it is silent — the response looks internally coherent unless you
@@ -329,5 +336,5 @@ only. All three are product decisions.
   synthetic tail-asymmetric fixture, not by an Excel replication of the
   CVaR LP — replicating Rockafellar–Uryasev in a spreadsheet is the same
   out-of-scope LP machinery noted above.
-- Finding B is diagnosed but not fixed; see its section for the reasoning
-  and the options.
+- Finding B is retained as a historical diagnosis; the current implementation
+  and regression test resolve it as described above.

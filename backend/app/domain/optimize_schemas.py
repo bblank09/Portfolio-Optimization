@@ -1,4 +1,7 @@
+import re
+from datetime import date
 from enum import StrEnum
+from math import isfinite
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
@@ -81,16 +84,45 @@ class FundBound(CamelModel):
     min_weight_pct: float = Field(ge=-100, le=100)
     max_weight_pct: float = Field(ge=0, le=100)
 
+    @model_validator(mode="after")
+    def validate_order(self):
+        if not isfinite(self.min_weight_pct) or not isfinite(self.max_weight_pct):
+            raise ValueError("fund bounds must be finite numbers")
+        if self.min_weight_pct > self.max_weight_pct:
+            raise ValueError("fund bound minWeightPct cannot exceed maxWeightPct")
+        return self
+
 
 class AssetGroup(CamelModel):
     name: str = ""
     min_weight_pct: float = Field(default=0, ge=0, le=100)
     max_weight_pct: float = Field(default=100, ge=0, le=100)
 
+    @model_validator(mode="after")
+    def validate_order(self):
+        if not isfinite(self.min_weight_pct) or not isfinite(self.max_weight_pct):
+            raise ValueError("asset group bounds must be finite numbers")
+        if self.min_weight_pct > self.max_weight_pct:
+            raise ValueError("asset group minWeightPct cannot exceed maxWeightPct")
+        return self
+
 
 class TimePeriod(CamelModel):
     start_date: str
     end_date: str
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.start_date) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.end_date):
+            raise ValueError("timePeriod dates must use ISO YYYY-MM-DD format")
+        try:
+            start = date.fromisoformat(self.start_date)
+            end = date.fromisoformat(self.end_date)
+        except ValueError as exc:
+            raise ValueError("timePeriod dates must use ISO YYYY-MM-DD format") from exc
+        if start > end:
+            raise ValueError("timePeriod startDate cannot be after endDate")
+        return self
 
 
 class BlackLittermanView(CamelModel):
@@ -101,6 +133,12 @@ class BlackLittermanView(CamelModel):
     adjusted_performance_pct: float
     confidence: int = Field(ge=0, le=100)
 
+    @model_validator(mode="after")
+    def validate_numbers(self):
+        if not isfinite(self.adjusted_performance_pct):
+            raise ValueError("Black-Litterman view performance must be finite")
+        return self
+
 
 class BlackLittermanInputs(CamelModel):
     risk_aversion: float = Field(gt=0)
@@ -108,10 +146,16 @@ class BlackLittermanInputs(CamelModel):
     benchmark_expected_return_pct: float
     views: list[BlackLittermanView] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def validate_numbers(self):
+        if not isfinite(self.risk_aversion) or not isfinite(self.tau) or not isfinite(self.benchmark_expected_return_pct):
+            raise ValueError("Black-Litterman inputs must be finite numbers")
+        return self
+
 
 class OptimizeConstraints(CamelModel):
     long_only: bool
-    min_weight_pct: float
+    min_weight_pct: float = Field(ge=-100, le=100)
     max_weight_pct: float = Field(ge=0, le=100)
     group_constraints_enabled: bool
     max_holdings: int = Field(ge=1)
@@ -122,6 +166,25 @@ class OptimizeConstraints(CamelModel):
     compare_against: CompareAgainst
     max_turnover_pct: float | None = Field(default=None, ge=0)
     max_tracking_error_pct: float | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_order(self):
+        numeric_fields = (
+            self.min_weight_pct,
+            self.max_weight_pct,
+            self.risk_free_rate_pct,
+            self.max_turnover_pct,
+            self.max_tracking_error_pct,
+        )
+        if any(value is not None and not isfinite(value) for value in numeric_fields):
+            raise ValueError("optimization constraints must be finite numbers")
+        if self.min_weight_pct > self.max_weight_pct:
+            raise ValueError("default minWeightPct cannot exceed maxWeightPct")
+        if self.long_only and self.min_weight_pct < 0:
+            raise ValueError("long-only constraints cannot have a negative minimum weight")
+        if self.lookback_period_months < 1:
+            raise ValueError("lookbackPeriodMonths must be positive")
+        return self
 
 
 class OptimizeRequest(CamelModel):
@@ -153,11 +216,62 @@ class OptimizeRequest(CamelModel):
     @model_validator(mode="after")
     def validate_request(self):
         proj_ids = [fund.proj_id for fund in self.funds]
+        proj_id_set = set(proj_ids)
         duplicates = sorted({p for p in proj_ids if proj_ids.count(p) > 1})
         if duplicates:
             raise ValueError(f"duplicate fund proj_id values are not allowed: {duplicates}")
         if self.goal == ObjectiveGoal.black_litterman and self.black_litterman is None:
             raise ValueError("blackLitterman inputs are required when goal is black_litterman")
+        if self.goal == ObjectiveGoal.black_litterman and self.return_method != ReturnEstimationMethod.black_litterman_posterior:
+            raise ValueError("black_litterman goal requires returnMethod=black_litterman_posterior")
+        if self.goal != ObjectiveGoal.black_litterman and self.return_method == ReturnEstimationMethod.black_litterman_posterior:
+            raise ValueError("returnMethod=black_litterman_posterior requires goal=black_litterman")
+        if self.benchmark_proj_id is None and self.constraints.max_tracking_error_pct is not None:
+            raise ValueError("maxTrackingErrorPct requires benchmarkProjId")
+        if self.benchmark_proj_id is not None and self.benchmark_proj_id not in proj_id_set:
+            raise ValueError("benchmarkProjId must reference a selected fund")
+        if self.constraints.long_only:
+            negative_current = [proj_id for proj_id, weight in self.current_weight_pct.items() if weight < 0]
+            negative_bounds = [
+                proj_id for proj_id, bound in self.fund_bounds.items() if bound.min_weight_pct < 0
+            ]
+            if negative_current or negative_bounds:
+                raise ValueError("long-only constraints cannot contain negative current weights or fund bounds")
+
+        for field_name, values in (
+            ("currentWeightPct", self.current_weight_pct),
+            ("expectedReturnOverrides", self.expected_return_overrides),
+            ("volatilityOverrides", self.volatility_overrides),
+        ):
+            if any(not isfinite(value) for value in values.values()):
+                raise ValueError(f"{field_name} values must be finite numbers")
+
+        scalar_values = (
+            ("tailConfidence", self.tail_confidence),
+            ("targetAnnualVolatilityPct", self.target_annual_volatility_pct),
+            ("targetAnnualReturnPct", self.target_annual_return_pct),
+        )
+        if any(value is not None and not isfinite(value) for _, value in scalar_values):
+            raise ValueError("optimization scalar inputs must be finite numbers")
+
+        for key, correlation in self.correlation_overrides.items():
+            parts = key.split("|")
+            if len(parts) != 2 or not all(parts) or parts[0] == parts[1]:
+                raise ValueError("correlationOverrides keys must be distinct proj_id pairs separated by '|'")
+            if parts[0] not in proj_id_set or parts[1] not in proj_id_set:
+                raise ValueError("correlationOverrides may reference selected funds only")
+            if not isfinite(correlation) or not -1 <= correlation <= 1:
+                raise ValueError("correlationOverrides values must be finite and between -1 and 1")
+
+        if self.black_litterman is not None:
+            for view in self.black_litterman.views:
+                if view.asset_proj_id_1 not in proj_id_set:
+                    raise ValueError("Black-Litterman views may reference selected funds only")
+                if view.view_type == ViewType.relative:
+                    if view.asset_proj_id_2 is None or view.asset_proj_id_2 not in proj_id_set:
+                        raise ValueError("relative Black-Litterman views require a selected second asset")
+                    if view.asset_proj_id_1 == view.asset_proj_id_2:
+                        raise ValueError("relative Black-Litterman views require two distinct assets")
         return self
 
 
@@ -273,6 +387,10 @@ class OptimizeResult(CamelModel):
     rolling: list[RollingFold]
     black_litterman: BlackLittermanResult | None
     monthly_returns_pct: list[float]
+    # Kept beside the legacy monthly_returns_pct field so clients can label
+    # daily/weekly optimization results honestly without breaking persisted
+    # result payloads created before this field existed.
+    return_frequency: DataFrequency = DataFrequency.monthly
     selected_risk_measure: SelectedRiskMeasureResult
     benchmark_comparison: BenchmarkComparison | None
     trade_list: list[TradeRow]

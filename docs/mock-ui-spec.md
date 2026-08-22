@@ -1,6 +1,11 @@
-# Mock UI Spec — Portfolio / Assumptions / Results (Phase 4 input)
+# UI Spec — Portfolio / Assumptions / Results (Phase 4 design record)
 
-Status: **spec for Phase 4 mock build**, no code yet.
+Status: **implemented design record (updated 2026-08-17).** The production UI is
+now mounted from `frontend/src/main.tsx` and calls the real optimizer API. This
+document preserves the design decisions and source traceability; where the live
+implementation deliberately differs (for example, retaining optional current
+weights for trade-list/turnover analysis), the TypeScript types and backend
+schemas are authoritative.
 
 **Revision history:** an earlier draft proposed a 4th "Universe" step, corrected below.
 A later revision cited PortfolioVisualizer fields via web-search summaries only
@@ -47,7 +52,7 @@ user doesn't set them) and add:
 |---|---|---|
 | Minimum history length filter | `nav_span_months` | optimizer needs enough observations per asset; expose as a slider (e.g. "require ≥ 36 months") |
 | Data completeness filter | `nav_completeness`, `nav_gap_count` | exclude funds with unreliable NAV history — same "gap is a hard error" philosophy as the parent engine's `INSUFFICIENT_NAV_HISTORY`, applied here at selection time |
-| Selection cap | soft UI cap, e.g. 20-30 funds, with an override | keeps the optimization well-posed (N assets << observations) on a ~2,000-fund universe; **open question, not yet decided:** exact cap and whether the backend also enforces it — resolve in Phase 5 |
+| Selection cap | shortlist UI with a server-enforced maximum of 30 funds | keeps the optimization well-posed (N assets << observations) on a ~2,000-fund universe; the UI remains browsable beyond the cap, while `OptimizeRequest.funds` rejects more than 30 selected funds |
 
 ---
 
@@ -164,8 +169,8 @@ equal-weight comparison at CAGR 7.75%, Sharpe 0.54):
 
 ## Explicitly out of scope for this spec
 
-- Actual computation/wiring (Phase 5).
-- The exact shortlist cap in Step 1 (flagged as open).
+- Historical mock computation/wiring details (the current implementation is in `backend/app/optimizer/` and `frontend/src/`).
+- A separate soft UI cap or override control; the current contract's hard maximum is 30 selected funds, enforced by the backend schema.
 - "Use Historical Returns: No" (forward-looking capital-market assumptions) — field
   confirmed to exist live, behavior not explored; later-tier addition.
 - PV's other 2-of-3 Optimization Goal categories (CVaR-subject-to, Tracking

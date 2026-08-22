@@ -49,6 +49,25 @@ def test_testable_range_endpoint_handles_an_unknown_proj_id():
     assert response.json() == {"start": None, "end": None}
 
 
+def test_testable_range_endpoint_uses_requested_daily_frequency(monkeypatch):
+    from backend.app.api import funds as funds_module
+
+    daily_panel = pd.DataFrame(
+        {"A": [100.0, 101.0, 103.0]},
+        index=pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-05"]),
+    )
+    monkeypatch.setattr(funds_module, "load_nav_panel", lambda _ids: daily_panel)
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/funds/testable-range",
+        params={"proj_ids": "A", "frequency": "daily"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"start": "2024-01-02", "end": "2024-01-03"}
+
+
 def test_backtest_endpoint_uses_sec_cache_and_persists_run():
     result = create_sample_backtest()
     assert result["data_source"] == "sec_open_data"

@@ -552,7 +552,7 @@ function HoldingsRow({
       <input
         className="field num weight-input"
         type="number"
-        min={0}
+        min={allowShort ? -100 : 0}
         max={100}
         value={row.weight}
         onChange={(event) => onWeightChange(Number(event.target.value))}

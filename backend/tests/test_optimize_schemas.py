@@ -81,6 +81,87 @@ def test_black_litterman_goal_requires_black_litterman_inputs():
         OptimizeRequest.model_validate(bad)
 
 
+def test_black_litterman_posterior_return_method_requires_black_litterman_goal():
+    bad = {**MINIMAL_REQUEST_JSON, "returnMethod": "black_litterman_posterior"}
+    with pytest.raises(ValidationError, match="black_litterman_posterior"):
+        OptimizeRequest.model_validate(bad)
+
+
+def test_black_litterman_goal_requires_posterior_return_method():
+    bad = {
+        **MINIMAL_REQUEST_JSON,
+        "goal": "black_litterman",
+        "returnMethod": "historical_mean",
+        "blackLitterman": {
+            "riskAversion": 2.5,
+            "tau": 0.05,
+            "benchmarkExpectedReturnPct": 6.0,
+            "views": [],
+        },
+    }
+    with pytest.raises(ValidationError, match="black_litterman_posterior"):
+        OptimizeRequest.model_validate(bad)
+
+
+def test_dates_require_extended_iso_yyyy_mm_dd_format():
+    bad = {
+        **MINIMAL_REQUEST_JSON,
+        "timePeriod": {"startDate": "20240101", "endDate": "2024-12-31"},
+    }
+    with pytest.raises(ValidationError, match="YYYY-MM-DD"):
+        OptimizeRequest.model_validate(bad)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {**MINIMAL_REQUEST_JSON, "benchmarkProjId": "NOT_SELECTED"},
+        {**MINIMAL_REQUEST_JSON, "constraints": {**MINIMAL_REQUEST_JSON["constraints"], "riskFreeRatePct": float("nan")}},
+        {**MINIMAL_REQUEST_JSON, "fundBounds": {"M0209_2548": {"minWeightPct": float("inf"), "maxWeightPct": 100}}},
+        {**MINIMAL_REQUEST_JSON, "targetAnnualVolatilityPct": float("nan")},
+    ],
+)
+def test_non_finite_or_unselected_references_are_rejected(bad):
+    with pytest.raises(ValidationError):
+        OptimizeRequest.model_validate(bad)
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("timePeriod", {"startDate": "2024-01-31", "endDate": "2023-12-31"}),
+        ("fundBounds", {"M0209_2548": {"minWeightPct": 80, "maxWeightPct": 20}}),
+        ("assetGroups", {**MINIMAL_REQUEST_JSON["assetGroups"], "A": {"name": "", "minWeightPct": 80, "maxWeightPct": 20}}),
+    ],
+)
+def test_semantically_infeasible_ranges_are_rejected(path, value):
+    bad = {**MINIMAL_REQUEST_JSON, path: value}
+    with pytest.raises(ValidationError):
+        OptimizeRequest.model_validate(bad)
+
+
+def test_relative_black_litterman_view_requires_a_distinct_second_asset():
+    bad = {
+        **MINIMAL_REQUEST_JSON,
+        "goal": "black_litterman",
+        "blackLitterman": {
+            "riskAversion": 2.5,
+            "tau": 0.05,
+            "benchmarkExpectedReturnPct": 6.0,
+            "views": [{
+                "key": "v1",
+                "assetProjId1": "M0209_2548",
+                "assetProjId2": "M0209_2548",
+                "viewType": "relative",
+                "adjustedPerformancePct": 2.0,
+                "confidence": 75,
+            }],
+        },
+    }
+    with pytest.raises(ValidationError):
+        OptimizeRequest.model_validate(bad)
+
+
 def _valid_optimize_result_payload() -> dict:
     """Return a minimal but structurally valid OptimizeResult payload in camelCase JSON format."""
     return {

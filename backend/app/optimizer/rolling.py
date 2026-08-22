@@ -18,7 +18,7 @@ import pandas as pd
 
 from backend.app.domain.optimize_schemas import OptimizeRequest
 from backend.app.engine import metrics
-from backend.app.optimizer import inputs, solvers
+from backend.app.optimizer import constraints, holdings, inputs
 
 _PERIOD_FREQ = {"monthly": "M", "quarterly": "Q", "annually": "Y"}
 
@@ -121,7 +121,9 @@ def build_fold_schedule(
 
 
 def run_rolling_evaluation(
-    request: OptimizeRequest, returns: pd.DataFrame
+    request: OptimizeRequest,
+    returns: pd.DataFrame,
+    benchmark_returns: pd.Series | None = None,
 ) -> tuple[list[dict], str | None]:
     """Walk-forward re-optimization: for each fold in the expanding-window
     schedule, re-solves the request's goal on the training slice via the
@@ -153,7 +155,7 @@ def run_rolling_evaluation(
     raw_mode = request.constraints.rolling_window_mode
     mode = raw_mode.value if hasattr(raw_mode, "value") else raw_mode
     lookback_months = request.constraints.lookback_period_months if mode == "trailing" else None
-    schedule = build_fold_schedule(returns.index, frequency, mode=mode, lookback_months=lookback_months)
+    schedule = build_fold_schedule(pd.DatetimeIndex(returns.index), frequency, mode=mode, lookback_months=lookback_months)
     train_floor = min_train_observations(len(request.funds))
     usable = [
         f
@@ -183,7 +185,15 @@ def run_rolling_evaluation(
             continue
         try:
             mu, sigma = inputs.build_mu_sigma(request, train_returns)
-            weights = solvers.solve_for_goal(request, mu, sigma, train_returns)
+            weights = holdings.enforce_max_holdings(request, mu, sigma, train_returns)[0]
+            train_benchmark = None
+            if request.constraints.max_tracking_error_pct is not None:
+                if benchmark_returns is None:
+                    raise ValueError("BENCHMARK_DATA_UNAVAILABLE")
+                train_benchmark = benchmark_returns.loc[train_start:fold.train_end]
+            weights = constraints.enforce_portfolio_constraints(
+                request, weights, train_returns, train_benchmark
+            )
             # Inside the try so a column-selection KeyError is counted as a
             # skipped fold like any other per-fold failure, rather than
             # escaping as an unhandled error.

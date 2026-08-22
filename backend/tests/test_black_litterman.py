@@ -1,14 +1,27 @@
 import pandas as pd
+import pytest
 
 from backend.app.domain.optimize_schemas import BlackLittermanInputs, BlackLittermanView
 from backend.app.optimizer.black_litterman import (
     blend_posterior,
     compute_equilibrium_returns,
 )
-from backend.tests.test_optimizer_solvers_mean_variance import (
-    _fake_returns,
-    _two_asset_request,
-)
+from backend.tests.test_optimizer_inputs import _request
+
+
+def _two_asset_request(goal: str):
+    return _request(goal=goal)
+
+
+def _fake_returns() -> pd.DataFrame:
+    dates = pd.date_range("2020-01-31", periods=12, freq="ME")
+    return pd.DataFrame(
+        {
+            "A": [0.02, 0.03, -0.01, 0.01, 0.04, 0.00, 0.02, -0.02, 0.03, 0.01, 0.02, 0.01],
+            "B": [0.005, 0.004, 0.006, 0.005, 0.007, 0.003, 0.005, 0.004, 0.006, 0.005, 0.004, 0.006],
+        },
+        index=dates,
+    )
 
 
 def test_equilibrium_returns_are_proportional_to_market_cap_weighted_risk():
@@ -17,6 +30,26 @@ def test_equilibrium_returns_are_proportional_to_market_cap_weighted_risk():
     # Pi = delta * Sigma @ w_mkt -- A has higher variance and covariance
     # with B, so its equilibrium return must come out higher than B's.
     assert equilibrium["A"] > equilibrium["B"]
+
+
+def test_benchmark_expected_return_changes_equilibrium_returns():
+    request = _two_asset_request("min_variance")
+    request.goal = "black_litterman"
+    request.black_litterman = BlackLittermanInputs(
+        riskAversion=2.5,
+        tau=0.05,
+        benchmarkExpectedReturnPct=2.0,
+        views=[],
+    )
+    sigma = pd.DataFrame({"A": [4.0, 1.0], "B": [1.0, 1.0]}, index=["A", "B"])
+    mu = pd.Series({"A": 5.0, "B": 4.0})
+
+    low_equilibrium, _ = blend_posterior(request, mu, sigma)
+    request.black_litterman = request.black_litterman.model_copy(update={"benchmark_expected_return_pct": 12.0})
+    high_equilibrium, _ = blend_posterior(request, mu, sigma)
+
+    assert not low_equilibrium.equals(high_equilibrium)
+    assert high_equilibrium.mean() == pytest.approx(12.0, abs=1e-9)
 
 
 def test_relative_view_moves_both_named_assets():
