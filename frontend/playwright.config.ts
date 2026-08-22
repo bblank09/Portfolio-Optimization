@@ -27,6 +27,14 @@ export default defineConfig({
   // of app correctness.
   timeout: 120_000,
   fullyParallel: false,
+  // The webServer below is a single uvicorn process with no worker pool, so
+  // two Playwright workers running CPU-bound optimization requests at the
+  // same time make the backend thrash: a solve that takes ~15-20s alone
+  // measured 76-107s under concurrent load in CI (see optimize request
+  // duration= log lines), blowing past even generous per-assertion
+  // timeouts. Serializing workers removes the contention rather than
+  // chasing a timeout that would still be flaky under load.
+  workers: 1,
   retries: 2,
   reporter: "list",
   use: {
